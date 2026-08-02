@@ -263,7 +263,7 @@ MT.rec = (function () {
                        sort_by: 'vote_average.desc' });
       }
 
-      for (const q of queries.slice(0, 6)) {
+      for (const q of queries.slice(0, 4)) {
         try {
           const results = await MT.tmdb.discover(kind, q, { signal: opts.signal });
           for (const r of results) {
@@ -471,42 +471,99 @@ MT.rec = (function () {
     return null;
   }
 
-  /* "More like this" on an item page: TMDB's own lists, re-ranked against the
-     user's profile so the ordering reflects their taste, not the global one. */
+  /* "More like this" on an item page — ZERO network requests.
+
+     The candidate summaries were captured when this item's details were
+     fetched, so everything needed to draw a card is already on the record.
+     Fetching full details for each one just to render a poster cost a dozen
+     requests per item page and bought nothing the user could see.
+
+     Ranking uses genre overlap against the taste profile, which is weaker than
+     the keyword-level scoring on #/recs but is free. The deep profile scoring
+     stays where its cost is amortised. */
   async function moreLikeThis(item, opts) {
     opts = opts || {};
-    const profile = await buildProfile(item.kind);
-    const dfTable = await MT.repo.dfTable();
     const owned = new Set((await MT.repo.allItems()).map(i => i.uid));
     const dismissed = await MT.repo.dismissedSet();
+    const profile = await buildProfile(item.kind);
+
+    /* Genre affinity from the profile, keyed by raw TMDB genre id — the only
+       signal present in a candidate summary. */
+    const genreWeight = {};
+    for (const [term, v] of Object.entries(profile.vec || {})) {
+      if (term.startsWith('g:tmdb:')) genreWeight[term.split(':')[2]] = v;
+    }
 
     const cands = []
-      .concat((item.rec.candidates.recommendations || []).map(c => ({ ...c, q: 'recommendations' })))
-      .concat((item.rec.candidates.similar || []).map(c => ({ ...c, q: 'similar' })));
+      .concat((item.rec.candidates.recommendations || []).map(c => ({ ...c, src: 'recommendations' })))
+      .concat((item.rec.candidates.similar || []).map(c => ({ ...c, src: 'similar' })));
 
+    const seen = new Set();
     const out = [];
-    for (const c of cands.slice(0, 18)) {
-      const ckind = c.kind === 'tv' ? 'tv' : 'movie';
-      const uid = MT.normalize.uidOf(ckind, 'tmdb', c.id);
-      if (owned.has(uid) || dismissed.has(uid)) continue;
-      try {
-        const detail = await MT.net.get('tmdb',
-          MT.tmdb.url(`/${ckind}/${c.id}`, {
-            append_to_response: ckind === 'tv' ? MT.tmdb.APPEND_TV : MT.tmdb.APPEND_MOVIE,
-          }), { ttl: MT.TTL.details, signal: opts.signal });
-        const norm = MT.normalize.fromTmdb(detail, ckind);
-        const sim = profile.empty ? { score: 0, hits: {} }
-                                  : similarity(norm.rec.terms, profile.vec, dfTable);
-        out.push({ uid, item: norm, score: sim.score * qualityPrior(norm), hits: sim.hits });
-      } catch (_) { /* a missing candidate is not an error */ }
-      if (out.length >= 12) break;
+    for (const c of cands) {
+      if (!c || !c.id) continue;
+      const uid = MT.normalize.uidOf(c.kind, 'tmdb', c.id);
+      if (owned.has(uid) || dismissed.has(uid) || seen.has(uid)) continue;
+      seen.add(uid);
+
+      const stub = MT.normalize.candidateToStub(c);
+      const affinity = (c.genreIds || []).reduce((s, g) => s + (genreWeight[g] || 0), 0);
+      /* TMDB's own ordering is meaningful, so position is kept as a prior and
+         the taste signal nudges rather than replaces it. */
+      const positional = 1 / (1 + out.length * 0.05);
+      const srcWeight = c.src === 'recommendations' ? 1 : 0.85;
+      out.push({ uid, item: stub, score: (0.6 + affinity) * positional * srcWeight * qualityPrior(stub) });
     }
     out.sort((a, b) => b.score - a.score);
-    return out;
+    return out.slice(0, opts.limit || 12);
+  }
+
+  /* ── Shared slate cache ────────────────────────────────────────────────
+     Home and #/recs render the same slate from one cache. Regenerating on
+     every home visit cost ~39 requests, and it was only ever "free" on a
+     revisit because the individual URL responses happened to still be cached.
+
+     The cache is keyed on a fingerprint of the library, so adding or rating
+     something invalidates it — the slate refreshes when your taste actually
+     changed, not on a timer. */
+  async function libraryFingerprint(kind) {
+    const all = await MT.repo.allItems();
+    const rel = all.filter(i => i.kind === kind && i.user && i.user.status !== 'dropped');
+    let h = `${rel.length}|${MT.config.get('novelty')}`;
+    for (const i of rel) h += `${i.uid}:${i.user.status}:${i.user.rating || ''};`;
+    return MT.util.fnv1a(h);
+  }
+
+  async function cachedSlate(kind, opts) {
+    opts = opts || {};
+    const key = 'rec.slate:' + kind;
+    const fp = await libraryFingerprint(kind);
+    if (!opts.force) {
+      const hit = await MT.repo.metaGet(key);
+      if (hit && hit.fp === fp && Date.now() - hit.at < MT.TTL.recSlate) {
+        return { items: hit.items, profileTerms: hit.profileTerms, cached: true };
+      }
+    }
+    const res = await generate(kind, opts);
+    if (res.empty) return { items: [], empty: true, profileTerms: [] };
+
+    /* Store a trimmed copy — the full normalized items would be megabytes. */
+    const slim = res.items.map(r => ({
+      uid: r.uid, reason: r.reason, score: r.score,
+      item: {
+        uid: r.item.uid, kind: r.item.kind, title: r.item.title,
+        facets: r.item.facets, images: r.item.images, release: r.item.release,
+        ratings: { tmdb: r.item.ratings.tmdb },
+      },
+    }));
+    const profileTerms = topTerms(res.profile, 12).map(t => t.term);
+    await MT.repo.metaSet(key, { at: Date.now(), fp, items: slim, profileTerms });
+    return { items: slim, profileTerms, cached: false };
   }
 
   return {
-    buildProfile, generate, moreLikeThis, similarity, qualityPrior, novelty,
+    buildProfile, generate, cachedSlate, libraryFingerprint, moreLikeThis,
+    similarity, qualityPrior, novelty,
     topTerms, idfOf, seedWeight, explain, selectDiverse, normalizeByFacet,
   };
 })();

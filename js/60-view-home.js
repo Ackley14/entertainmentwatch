@@ -93,10 +93,15 @@ MT.viewHome = (function () {
     </a>`;
   }
 
+  /* Reads the SAME cached slate as #/recs and never builds one itself.
+     Regenerating here cost ~39 requests on every home visit — and building
+     recommendations is the most expensive thing the app does, so it should
+     only ever happen when the user asks for it or their library has changed. */
   async function loadRecs(all) {
     const host = document.getElementById('home-recs');
     if (!host) return;
-    if (!MT.config.hasKey('tmdb')) { host.innerHTML = ''; return; }
+    if (!MT.config.hasKey('tmdb')) { dropSection(); return; }
+
     const seeds = all.filter(it => it.kind !== 'game' && it.rec && it.rec.seedEligible);
     if (seeds.length < 3) {
       host.innerHTML = MT.ui.emptyState({
@@ -105,18 +110,51 @@ MT.viewHome = (function () {
       });
       return;
     }
+
+    const kind = seeds.filter(s => s.kind === 'tv').length > seeds.length / 2 ? 'tv' : 'movie';
     try {
-      const kind = seeds.filter(s => s.kind === 'tv').length > seeds.length / 2 ? 'tv' : 'movie';
-      const res = await MT.rec.generate(kind, { slate: 6, hydrate: 24 });
-      if (!res.items.length) { host.innerHTML = ''; return; }
-      host.innerHTML = '<div class="grid">' + res.items.map(r => `
+      const fp = await MT.rec.libraryFingerprint(kind);
+      const hit = await MT.repo.metaGet('rec.slate:' + kind);
+      const fresh = hit && hit.fp === fp && Date.now() - hit.at < MT.TTL.recSlate;
+
+      if (!fresh) {
+        /* Offer rather than spend. One button beats thirty-five silent
+           requests every time somebody opens the home page. */
+        host.innerHTML = MT.ui.emptyState({
+          title: hit ? 'Your library has changed' : 'Ready when you are',
+          body: hit
+            ? 'Rebuild your recommendations to take the new titles into account.'
+            : 'Build a taste profile from your library and see what it turns up.',
+          actions: '<button class="btn btn--primary" id="build-recs">Build recommendations</button>',
+        });
+        const btn = document.getElementById('build-recs');
+        if (btn) btn.onclick = async () => {
+          btn.disabled = true; btn.textContent = 'Working…';
+          try {
+            await MT.rec.cachedSlate(kind, { force: true, slate: 12 });
+            MT.router.resolve();
+          } catch (e) {
+            host.innerHTML = MT.ui.errorBox('Could not build recommendations', e.message || '');
+          }
+        };
+        return;
+      }
+
+      const items = hit.items.slice(0, 6);
+      if (!items.length) { dropSection(); return; }
+      host.innerHTML = '<div class="grid">' + items.map(r => `
         <div class="rec">${MT.ui.posterCard(r.item, { hideStatus: true })}
           <div class="rec__why ${r.reason.kind === 'graph' ? 'rec__why--graph' : ''}">${r.reason.text}</div>
         </div>`).join('') + '</div>';
     } catch (e) {
-      host.innerHTML = '';
+      dropSection();
       console.warn('[home] recs failed', e && e.message);
     }
+  }
+
+  function dropSection() {
+    const host = document.getElementById('home-recs');
+    if (host && host.parentElement) host.parentElement.remove();
   }
 
   function firstRun(view) {

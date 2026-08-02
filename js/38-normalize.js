@@ -222,11 +222,14 @@ MT.normalize = (function () {
         fetchedAt: Date.now(),
         franchiseKey: raw.belongs_to_collection ? `tmdbcol:${raw.belongs_to_collection.id}` : null,
         terms: buildTerms({ genres, keywords, people, companies }),
+        /* Summaries, not bare ids. TMDB's recommendations/similar arrays
+           already carry title, poster, date and votes — everything a poster
+           card needs. Storing only the id meant re-fetching each candidate
+           just to draw it, which cost a dozen requests every time an item
+           page opened. Keeping the summary makes "If you like this" free. */
         candidates: {
-          recommendations: ((raw.recommendations && raw.recommendations.results) || [])
-            .slice(0, 20).map(r => ({ id: r.id, kind: r.media_type || kind })),
-          similar: ((raw.similar && raw.similar.results) || [])
-            .slice(0, 20).map(r => ({ id: r.id, kind: r.media_type || kind })),
+          recommendations: summarize(raw.recommendations, kind),
+          similar: summarize(raw.similar, kind),
         },
         seedEligible: 1,
       },
@@ -239,6 +242,45 @@ MT.normalize = (function () {
     };
 
     return item;
+  }
+
+  /* Compact enough to store on every item without bloating IndexedDB, complete
+     enough that `candidateToStub` can render a card with no network at all. */
+  function summarize(block, parentKind) {
+    return ((block && block.results) || []).slice(0, 20).map(r => {
+      const k = r.media_type === 'tv' ? 'tv' : r.media_type === 'movie' ? 'movie' : parentKind;
+      return {
+        id: r.id, kind: k,
+        title: k === 'tv' ? (r.name || r.original_name) : (r.title || r.original_title),
+        posterPath: r.poster_path || null,
+        date: (k === 'tv' ? r.first_air_date : r.release_date) || '',
+        score: r.vote_average || null,
+        votes: r.vote_count || 0,
+        genreIds: r.genre_ids || [],
+      };
+    });
+  }
+
+  /* Turn a stored candidate summary back into something renderable. */
+  function candidateToStub(c) {
+    const release = buildRelease(c.date, {});
+    return {
+      uid: uidOf(c.kind, 'tmdb', c.id),
+      kind: c.kind,
+      facets: { anime: 0 },
+      ids: { tmdb: c.id, tmdbType: c.kind, imdb: null },
+      title: c.title || `#${c.id}`,
+      overview: '',
+      images: { posterPath: c.posterPath, backdropPath: null, source: 'tmdb' },
+      genres: (c.genreIds || []).map(id => ({ id, name: '', source: 'tmdb' })),
+      keywords: [], people: [], companies: [],
+      release,
+      ratings: c.score ? { tmdb: { score: c.score, scale: 10, votes: c.votes,
+                                  url: `https://www.themoviedb.org/${c.kind}/${c.id}` } } : {},
+      links: { tmdb: `https://www.themoviedb.org/${c.kind}/${c.id}` },
+      rec: { terms: {}, candidates: {}, seedEligible: 0 },
+      meta: { schema: 1, primarySource: 'tmdb', detailsFetchedAt: 0, partial: 1, manualOverrides: {} },
+    };
   }
 
   function isAnime(raw, genres) {
@@ -539,6 +581,7 @@ MT.normalize = (function () {
 
   return {
     uidOf, parseUid, buildRelease, emptyRelease, buildTerms,
+    summarize, candidateToStub,
     fromTmdb, stubFromTmdbSearch, fromRawg, stubFromRawgSearch,
     mergeItem, withDefaults, setPath,
     TMDB_STATUS, STATUS_RANK,

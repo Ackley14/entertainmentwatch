@@ -54,40 +54,58 @@ MT.net = (function () {
      The UI must say "requests from this browser", never "remaining quota". */
   const budgetCache = {};
 
-  async function budgetKey(source) {
+  /* A source can be capped on more than one window at once — RAWG's real limit
+     is monthly, but a daily sub-cap stops a single bad afternoon from spending
+     the whole month. Every applicable window must have room. */
+  function budgetWindows(source) {
     const p = MT.NET_POLICY[source];
-    if (p.monthlyBudget) return { key: `req:${source}:${MT.util.monthStamp()}`, cap: p.monthlyBudget };
-    if (p.dailyBudget)   return { key: `req:${source}:${MT.util.todayStamp()}`, cap: p.dailyBudget };
-    return null;
+    const out = [];
+    if (p.dailyBudget) out.push({ key: `req:${source}:${MT.util.todayStamp()}`, cap: p.dailyBudget, period: 'day' });
+    if (p.monthlyBudget) out.push({ key: `req:${source}:${MT.util.monthStamp()}`, cap: p.monthlyBudget, period: 'month' });
+    return out;
+  }
+
+  async function loadWindow(w) {
+    if (budgetCache[w.key] == null) budgetCache[w.key] = (await MT.repo.metaGet(w.key)) || 0;
+    return budgetCache[w.key];
   }
 
   async function budgetTake(source) {
-    const b = await budgetKey(source);
-    if (!b) return true;
-    if (budgetCache[b.key] == null) {
-      budgetCache[b.key] = (await MT.repo.metaGet(b.key)) || 0;
+    const windows = budgetWindows(source);
+    if (!windows.length) return true;
+    for (const w of windows) {
+      if ((await loadWindow(w)) >= w.cap) return false;
     }
-    if (budgetCache[b.key] >= b.cap) return false;
-    budgetCache[b.key]++;
-    MT.repo.metaSet(b.key, budgetCache[b.key]);      // fire and forget
+    for (const w of windows) {
+      budgetCache[w.key]++;
+      MT.repo.metaSet(w.key, budgetCache[w.key]);    // fire and forget
+    }
     return true;
   }
 
-  /* Refund a unit consumed by a request that never reached the network — a
+  /* Refund units consumed by a request that never reached the network — a
      circuit-open short-circuit, an abort, a cache race. Without this the
      budget drifts down every time the app has a bad day. */
   async function budgetRefund(source) {
-    const b = await budgetKey(source);
-    if (!b || budgetCache[b.key] == null) return;
-    budgetCache[b.key] = Math.max(0, budgetCache[b.key] - 1);
-    MT.repo.metaSet(b.key, budgetCache[b.key]);
+    for (const w of budgetWindows(source)) {
+      if (budgetCache[w.key] == null) continue;
+      budgetCache[w.key] = Math.max(0, budgetCache[w.key] - 1);
+      MT.repo.metaSet(w.key, budgetCache[w.key]);
+    }
   }
 
+  /* Reports the window closest to exhaustion, which is what a gauge should
+     show. */
   async function budgetState(source) {
-    const b = await budgetKey(source);
-    if (!b) return null;
-    if (budgetCache[b.key] == null) budgetCache[b.key] = (await MT.repo.metaGet(b.key)) || 0;
-    return { used: budgetCache[b.key], cap: b.cap, period: MT.NET_POLICY[source].monthlyBudget ? 'month' : 'day' };
+    const windows = budgetWindows(source);
+    if (!windows.length) return null;
+    let worst = null;
+    for (const w of windows) {
+      const used = await loadWindow(w);
+      const frac = used / w.cap;
+      if (!worst || frac > worst.frac) worst = { used, cap: w.cap, period: w.period, frac };
+    }
+    return worst;
   }
 
   /* ── Errors ───────────────────────────────────────────────────────────── */
@@ -202,8 +220,9 @@ MT.net = (function () {
     }
     if (!(await budgetTake(source))) {
       if (opts._stale) return opts._stale.payload;
+      const st = await budgetState(source);
       throw new NetError('budget',
-        `This browser has used its ${source.toUpperCase()} request budget for the ${policy.monthlyBudget ? 'month' : 'day'}.`,
+        `This browser has used its ${source.toUpperCase()} request budget for the ${st ? st.period : 'day'}.`,
         { source });
     }
 

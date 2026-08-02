@@ -3,3 +3,6 @@ node_modules/
 Thumbs.db
 *.log
 movietrak-*.json
+
+# Local-only UI concept exploration — not part of the app
+_pitches/

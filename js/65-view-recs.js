@@ -71,17 +71,12 @@ MT.viewRecs = (function () {
       return;
     }
 
-    const cacheKey = 'rec.results:' + kind;
-    if (!force) {
-      const cached = await MT.repo.metaGet(cacheKey);
-      if (cached && Date.now() - cached.at < MT.TTL.recResults) {
-        return paint(host, cached.items, cached.profile);
-      }
-    }
-
     host.innerHTML = MT.ui.skeletonGrid(12);
     try {
-      const res = await MT.rec.generate(kind, {});
+      /* One cache, shared with the home screen, invalidated by a fingerprint of
+         the library rather than by a timer — so it rebuilds when your taste
+         changes, not on a schedule. */
+      const res = await MT.rec.cachedSlate(kind, { force });
       if (res.empty) {
         host.innerHTML = MT.ui.emptyState({
           title: 'Not enough to go on yet',
@@ -95,23 +90,10 @@ MT.viewRecs = (function () {
           body: 'Everything that scored well is already in your library or dismissed.' });
         return;
       }
-      const slim = res.items.map(r => ({
-        uid: r.uid, reason: r.reason, score: r.score,
-        item: {
-          uid: r.item.uid, kind: r.item.kind, title: r.item.title,
-          facets: r.item.facets, images: r.item.images, release: r.item.release,
-          ratings: { tmdb: r.item.ratings.tmdb },
-        },
-      }));
-      await MT.repo.metaSet(cacheKey, { at: Date.now(), items: slim, profile: topTerms(res.profile) });
-      paint(host, slim, topTerms(res.profile));
+      paint(host, res.items, res.profileTerms);
     } catch (e) {
       host.innerHTML = MT.ui.errorBox('Could not build recommendations', (e && e.message) || String(e));
     }
-  }
-
-  function topTerms(profile) {
-    return MT.rec.topTerms(profile, 12).map(t => t.term);
   }
 
   function paint(host, items, profileTerms) {

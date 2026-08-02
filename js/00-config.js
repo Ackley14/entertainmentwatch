@@ -18,9 +18,9 @@ window.MT = window.MT || {};
    AniList / TVmaze  — no key required.
    ────────────────────────────────────────────────────────────────────────── */
 MT.BAKED_KEYS = {
-  tmdb: '',
-  omdb: '',
-  rawg: '',
+  tmdb: '6817ca06fecc9c774787441ab046e93d',
+  omdb: '278454c9',
+  rawg: 'a6cd69b57635443fbcb2b71712dd60bf',
 };
 
 MT.config = (function () {
@@ -103,9 +103,15 @@ MT.config = (function () {
    share with the user's own browsing — so we self-cap well below it.
    RAWG's cap is per MONTH, which is why it gets a budget rather than a rate. */
 MT.NET_POLICY = {
-  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: null,  monthlyBudget: null },
-  omdb:    { rps: 4,  concurrency: 2, retries: 2, dailyBudget: 950,   monthlyBudget: null },
-  rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: null,  monthlyBudget: 19000 },
+  /* TMDB has no documented daily quota, only a rate ceiling — but a runaway
+     loop with no cap is exactly how a key gets flagged for abuse, so it gets a
+     generous daily backstop that normal use will never approach. Measured
+     costs: a cold boot is 0 requests, a cached page is 0, and rebuilding the
+     recommendation slate (the single most expensive thing the app does) is
+     about 35. */
+  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: 2500, monthlyBudget: null },
+  omdb:    { rps: 4,  concurrency: 2, retries: 2, dailyBudget: 900,  monthlyBudget: null },
+  rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: 400,  monthlyBudget: 19000 },
   anilist: { rps: 0.4, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
 };
 
@@ -121,7 +127,10 @@ MT.TTL = {
   omdb:         14 * DAY,
   anilist:      14 * DAY,
   rawg:         7 * DAY,
-  recResults:   2 * DAY,
+  /* The rec slate is additionally invalidated whenever the library changes,
+     so a long TTL costs nothing in freshness — it only stops the ~35-request
+     rebuild from firing on a timer while your taste has not moved. */
+  recSlate:     14 * DAY,
   HARD_TTL:     150 * DAY,
 };
 
