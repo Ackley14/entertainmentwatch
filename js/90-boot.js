@@ -13,6 +13,7 @@ MT.boot = (function () {
     MT.router.on('/library',    (p, q) => MT.viewLibrary.render(p, q));
     MT.router.on('/up',         (p, q) => MT.viewUp.render(p, q));
     MT.router.on('/search',     (p, q) => MT.viewSearch.render(p, q));
+    MT.router.on('/releases',   (p, q) => MT.viewReleases.render(p, q));
     MT.router.on('/recs',       (p, q) => MT.viewRecs.render(p, q));
     MT.router.on('/alerts',     (p, q) => MT.viewAlerts.render(p, q));
     MT.router.on('/people',     () => MT.viewPeople.render());

@@ -128,5 +128,23 @@ MT.rawg = (function () {
     }
   }
 
-  return { url, search, game, series, byFilters, tagSemantics, catalogueSize, verifyKey, requireKey };
+  /* Games launching inside a date window. RAWG's `dates` takes a comma-joined
+     inclusive pair; `ordering=-added` puts the games people actually track
+     first, which for an upcoming list is far more useful than alphabetical.
+     Failures here are the usual RAWG problem — opaque to the browser — so the
+     caller must treat a throw as "unknown", never as "nothing releases". */
+  async function releasesBetween(fromISO, toISO, opts) {
+    requireKey();
+    opts = opts || {};
+    const data = await MT.net.get('rawg', url('/games', {
+      dates: `${fromISO},${toISO}`,
+      ordering: '-added',
+      page_size: opts.limit || 20,
+      page: opts.page || 1,
+    }), { ttl: MT.TTL.search, signal: opts.signal });
+    return data.results || [];
+  }
+
+  return { url, search, game, series, byFilters, tagSemantics, catalogueSize,
+           releasesBetween, verifyKey, requireKey };
 })();

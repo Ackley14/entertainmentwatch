@@ -366,8 +366,77 @@ MT.util = (function () {
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   }
 
+  /* ── Release windows ───────────────────────────────────────────────────
+     Ranges for the Releases view. Every boundary is computed on sort keys and
+     the numeric Date constructor, never by parsing a date string — the whole
+     point of the precision model is that we never let a timezone move a day.
+
+     "This week" runs from today for seven days rather than snapping to a
+     Monday: someone asking on a Saturday what lands "this week" means the next
+     several days, not the two remaining ones. */
+  function skToISO(sk) {
+    const p = sortKeyToParts(sk);
+    if (!p) return null;
+    return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+  }
+
+  function lastDayOfMonth(y, m) {
+    return new Date(y, m, 0).getDate();          // day 0 of next month = last of this
+  }
+
+  function endOfMonthSortKey(y, m) {
+    return y * 10000 + m * 100 + lastDayOfMonth(y, m);
+  }
+
+  function monthsAhead(y, m, n) {
+    const total = (y * 12 + (m - 1)) + n;
+    return { y: Math.floor(total / 12), m: (total % 12) + 1 };
+  }
+
+  const RELEASE_RANGES = [
+    { id: 'week',   label: 'This week' },
+    { id: 'month',  label: 'This month' },
+    { id: 'next',   label: 'Next month' },
+    { id: 'q',      label: 'Next 3 months' },
+    { id: 'half',   label: 'Next 6 months' },
+    { id: 'year',   label: 'Rest of this year' },
+    { id: 'nextyr', label: 'Next year' },
+  ];
+
+  /* Returns { from, to } as inclusive sort keys. */
+  function releaseWindow(id) {
+    const today = todaySortKey();
+    const t = sortKeyToParts(today);
+    switch (id) {
+      case 'week':
+        return { from: today, to: addDaysToSortKey(today, 6) };
+      case 'month':
+        return { from: today, to: endOfMonthSortKey(t.y, t.m) };
+      case 'next': {
+        const n = monthsAhead(t.y, t.m, 1);
+        return { from: n.y * 10000 + n.m * 100 + 1, to: endOfMonthSortKey(n.y, n.m) };
+      }
+      case 'q': {
+        const n = monthsAhead(t.y, t.m, 3);
+        return { from: today, to: endOfMonthSortKey(n.y, n.m) };
+      }
+      case 'half': {
+        const n = monthsAhead(t.y, t.m, 6);
+        return { from: today, to: endOfMonthSortKey(n.y, n.m) };
+      }
+      case 'year':
+        return { from: today, to: t.y * 10000 + 1231 };
+      case 'nextyr':
+        return { from: (t.y + 1) * 10000 + 101, to: (t.y + 1) * 10000 + 1231 };
+      default:
+        return { from: today, to: addDaysToSortKey(today, 6) };
+    }
+  }
+
   return {
     SK_UNKNOWN, SK_TBA, MONTHS, MONTHS_ABBR,
+    skToISO, lastDayOfMonth, endOfMonthSortKey, monthsAhead,
+    RELEASE_RANGES, releaseWindow,
     parseNaive, sortKeyOf, sortKeyToParts, todaySortKey,
     addDaysToSortKey, daysBetweenSortKeys, daysUntil,
     derivePrecision, quarterOf, displayRelease, shortDate,

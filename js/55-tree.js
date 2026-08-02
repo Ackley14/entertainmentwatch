@@ -70,6 +70,9 @@ MT.tree = (function () {
       ] },
       { id: 'discover', label: 'Discover', children: [
         { id: 'search', label: 'Search', route: '#/search' },
+        /* "Releases" is discovery — things you do NOT have. Distinct from
+           "Coming Up", which plots dates for titles already in the index. */
+        { id: 'releases', label: 'Releases', route: '#/releases' },
         { id: 'recs', label: 'For you', route: '#/recs' },
         { id: 'people', label: 'Following', route: '#/people', n: follows.length },
       ] },

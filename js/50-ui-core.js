@@ -174,7 +174,7 @@ MT.ui = (function () {
     const u = item.user || {};
     const added = u.addedAt ? new Date(u.addedAt) : null;
     return `<tr data-uid="${esc(item.uid)}"${selected ? ' class="is-sel"' : ''}>
-      <td data-col="title"><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span></td>
+      <td data-col="title"><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span>${progressBar(item)}</td>
       <td data-col="type">${kindTag(item)}</td>
       <td data-col="status" data-drop>${statusCell(item)}</td>
       <td data-col="release">${dateCell(item.release)}</td>
@@ -184,15 +184,106 @@ MT.ui = (function () {
     </tr>`;
   }
 
+  /* ══ PROGRESS ═══════════════════════════════════════════════════════════
+     How far into a thing you are. One optional shape on user.progress, read
+     according to item.kind rather than split into per-kind records — a merge
+     between two devices then has one field to reconcile instead of three, and
+     an item that changes kind (a film that turns out to be a miniseries)
+     does not strand its data.
+
+       user.progress = { minutes, season, episode, percent, updatedAt }
+
+     Every field is optional and only the ones meaningful for the kind are ever
+     written. It lives under `user`, which leanForSync does not drop, so it
+     syncs like the rating and the notes do.
+
+     This replaced a column that was showing something else entirely: the TV
+     branch returned tvExtra.nextEpisode — TMDB's next AIRING episode, upstream
+     broadcast state identical for every user — the film branch returned total
+     runtime, and the only branch that read user state was dead because nothing
+     in the app ever wrote user.progress. */
+
+  function progressOf(item) {
+    const p = item && item.user && item.user.progress;
+    return p && typeof p === 'object' ? p : null;
+  }
+
+  /* 0..1, or null when there is no denominator to measure against. A film with
+     no runtime and a show with no episode count are genuinely unmeasurable —
+     they get a position, not a fraction. */
+  function progressFraction(item) {
+    const p = progressOf(item);
+    if (!p) return (item.user && item.user.status === 'watched') ? 1 : null;
+    if (item.kind === 'game') {
+      return p.percent != null ? MT.util.clamp(p.percent, 0, 100) / 100 : null;
+    }
+    if (item.kind === 'tv') {
+      const total = item.tvExtra && item.tvExtra.episodeCount;
+      if (!total || p.episode == null) return null;
+      return MT.util.clamp(p.episode / total, 0, 1);
+    }
+    if (p.minutes == null || !item.runtimeMin) return null;
+    return MT.util.clamp(p.minutes / item.runtimeMin, 0, 1);
+  }
+
   function progressText(item) {
     const u = item.user || {};
-    if (item.kind === 'tv' && item.tvExtra && item.tvExtra.nextEpisode) {
-      const n = item.tvExtra.nextEpisode;
-      return `S${n.season} E${n.episode}`;
+    const p = progressOf(item);
+    if (p) {
+      if (item.kind === 'tv' && p.episode != null) {
+        return `S${p.season || 1} E${p.episode}`;
+      }
+      if (item.kind === 'game' && p.percent != null) return `${Math.round(p.percent)}%`;
+      if (p.minutes != null) {
+        const f = progressFraction(item);
+        return f != null ? `${Math.round(f * 100)}%` : `${MT.util.runtimeStr(p.minutes)} in`;
+      }
     }
-    if (item.kind === 'game' && u.progress && u.progress.hoursPlayed) return `${u.progress.hoursPlayed}h played`;
-    if (item.runtimeMin) return MT.util.runtimeStr(item.runtimeMin);
+    if (u.status === 'watched') return 'Finished';
     return '—';
+  }
+
+  /* A hairline along the bottom of the row. Deliberately not another column:
+     the phone layout has no width to spare, and this is legible at 320px. */
+  function progressBar(item) {
+    const f = progressFraction(item);
+    if (f == null || f <= 0) return '';
+    return `<span class="prg" aria-hidden="true"><i style="width:${(f * 100).toFixed(1)}%"></i></span>`;
+  }
+
+  /* Clamped on the way in, so nothing downstream has to defend against
+     episode 0, 150%, or a position past the end of the film. */
+  function setProgress(uid, patch) {
+    return MT.repo.getItem(uid).then(async cur => {
+      if (!cur) return null;
+      const p = Object.assign({}, progressOf(cur));
+      if (patch.minutes !== undefined) {
+        p.minutes = patch.minutes == null ? undefined
+          : Math.round(MT.util.clamp(patch.minutes, 0, cur.runtimeMin || 100000));
+      }
+      if (patch.percent !== undefined) {
+        p.percent = patch.percent == null ? undefined
+          : Math.round(MT.util.clamp(patch.percent, 0, 100));
+      }
+      if (patch.season !== undefined) {
+        p.season = patch.season == null ? undefined : Math.max(1, Math.round(patch.season));
+      }
+      if (patch.episode !== undefined) {
+        p.episode = patch.episode == null ? undefined : Math.max(0, Math.round(patch.episode));
+      }
+      for (const k of Object.keys(p)) if (p[k] === undefined) delete p[k];
+
+      const empty = !Object.keys(p).filter(k => k !== 'updatedAt').length;
+      cur.user.progress = empty ? null : Object.assign(p, { updatedAt: Date.now() });
+
+      /* Recording progress on something still filed as "want" is a statement
+         that you have started it. Never the reverse: finishing is a decision,
+         not something inferred from a slider reaching the end. */
+      if (!empty && cur.user.status === 'want') cur.user.status = 'watching';
+
+      await MT.repo.putItem(cur);
+      return cur;
+    });
   }
 
   function grid(items, selectedUid) {
@@ -370,7 +461,8 @@ MT.ui = (function () {
 
   return {
     esc, dateField, waterline, precisionTag, dateCell, whenText, driftBadge,
-    poster, posterUrl, chipart, hues, kindOf, kindTag, statusCell, progressText, shortWhen,
+    poster, posterUrl, chipart, hues, kindOf, kindTag, statusCell, shortWhen,
+    progressText, progressBar, progressFraction, progressOf, setProgress,
     table, tableRow, grid, COLUMNS,
     emptyState, errorBox, skeletonGrid, groupHead, toast, banner, crumb, paneActions,
     addItem, hydrate, enrichRatings, setStatus, confirmDialog,

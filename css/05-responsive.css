@@ -326,3 +326,18 @@ select.chip { padding: 0 var(--mt-space-3); appearance: none; }
   .miss .add { min-height: 40px; min-width: 64px; display: grid; place-items: center; font-size: var(--mt-fs-base); }
   .miss { gap: var(--mt-space-3); padding-top: var(--mt-space-3); padding-bottom: var(--mt-space-3); }
 }
+
+/* ══ 8 · PROGRESS AND RELEASES ON A PHONE ═════════════════════════════════ */
+@media (pointer: coarse) {
+  /* A 18px thumb is under the 44px floor, so the whole track gets the height
+     instead and the thumb keeps its visual size. */
+  .prgctl input[type="range"] { height: 6px; padding: 19px 0; background-clip: content-box; }
+  .prgnum input { width: 62px; }
+}
+
+@media (max-width: 560px) {
+  .relwin, .relnote { padding-left: var(--mt-space-5); padding-right: var(--mt-space-5); }
+  /* Seven ranges will not fit on one line; let them wrap rather than scroll,
+     so none is hidden off the edge. */
+  .toolbar--sub .chips { gap: var(--mt-space-1) 5px; }
+}

@@ -133,6 +133,11 @@ MT.inspector = (function () {
         <div style="margin-top:var(--mt-space-4)">
           <textarea class="notecard" id="inspNotes" placeholder="Why you want to see it, who recommended it…">${esc(u.notes || '')}</textarea>
         </div>
+      </div>
+
+      <div class="blk">
+        <div class="blk-h">How far in ${progressWhy(item)}</div>
+        ${progressControl(item)}
       </div>`}
 
       <div class="blk">
@@ -202,6 +207,75 @@ MT.inspector = (function () {
     lastBody = body;
     wire(item);
     loadMoreLikeThis(item);
+  }
+
+
+  /* \u2500\u2500 Progress \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+     One control per kind, because "how far in" means three different things.
+     Each is a coarse stepper plus a readout rather than a free-text field: on
+     a phone this gets set with a thumb while the thing is paused, and a number
+     keyboard for "minute 87" is a worse experience than a slider.
+
+     When the denominator is unknown \u2014 a film with no runtime, a series whose
+     episode count has not been fetched, an item still meta.partial \u2014 there is
+     nothing to scale against, so it degrades to a plain stepper that records a
+     position without pretending to know a percentage. */
+
+  function progressWhy(item) {
+    if (item.kind === 'game') return '<span class="why">percent complete</span>';
+    if (item.kind === 'tv') return '<span class="why">season and episode</span>';
+    return '<span class="why">minutes in</span>';
+  }
+
+  function progressControl(item) {
+    const p = MT.ui.progressOf(item) || {};
+    const f = MT.ui.progressFraction(item);
+    const pct = f == null ? 0 : Math.round(f * 100);
+    const meter = `<div class="prgmeter"><i style="width:${pct}%"></i></div>`;
+
+    if (item.kind === 'game') {
+      return `<div class="prgctl">
+        <input type="range" id="prgRange" min="0" max="100" step="5"
+               value="${p.percent != null ? p.percent : 0}" aria-label="Percent complete">
+        <div class="prgrow">
+          <span class="prgval mono" id="prgVal">${p.percent != null ? p.percent : 0}%</span>
+          <button class="btn btn--sm" type="button" data-prg="clear">Clear</button>
+        </div>
+      </div>`;
+    }
+
+    if (item.kind === 'tv') {
+      const total = (item.tvExtra && item.tvExtra.episodeCount) || 0;
+      return `<div class="prgctl">
+        ${total ? meter : ''}
+        <div class="prgrow">
+          <label class="prgnum">S<input type="number" inputmode="numeric" id="prgSeason"
+             min="1" step="1" value="${p.season != null ? p.season : 1}" aria-label="Season"></label>
+          <label class="prgnum">E<input type="number" inputmode="numeric" id="prgEpisode"
+             min="0" step="1" value="${p.episode != null ? p.episode : 0}" aria-label="Episode"></label>
+          <button class="btn btn--sm btn--primary" type="button" data-prg="ep+1">+1 episode</button>
+          <button class="btn btn--sm" type="button" data-prg="clear">Clear</button>
+        </div>
+        <div class="prgnote muted">${total
+          ? `${p.episode != null ? p.episode : 0} of ${total} episodes`
+          : 'Episode count not known yet, so no percentage is shown.'}</div>
+      </div>`;
+    }
+
+    const rt = item.runtimeMin || 0;
+    return `<div class="prgctl">
+      ${rt ? `<input type="range" id="prgRange" min="0" max="${rt}" step="1"
+               value="${p.minutes != null ? p.minutes : 0}" aria-label="Minutes in">` : ''}
+      <div class="prgrow">
+        <label class="prgnum"><input type="number" inputmode="numeric" id="prgMinutes"
+           min="0" step="1" value="${p.minutes != null ? p.minutes : 0}" aria-label="Minutes in">min</label>
+        <span class="prgval mono" id="prgVal">${rt ? `${pct}%` : ''}</span>
+        <button class="btn btn--sm" type="button" data-prg="clear">Clear</button>
+      </div>
+      <div class="prgnote muted">${rt
+        ? `of ${MT.util.runtimeStr(rt)}`
+        : 'Runtime not known yet, so no percentage is shown.'}</div>
+    </div>`;
   }
 
   function cert(item) {
@@ -372,6 +446,12 @@ MT.inspector = (function () {
       if (goto) show(goto.dataset.goto);
     };
 
+    /* Progress. Every write updates the pane in place and calls invalidate(),
+       because paint() skips a byte-identical rebuild — without invalidating,
+       a later paint could compare against a signature that predates the edit
+       and decide, wrongly, that nothing needs redrawing. */
+    wireProgress(item);
+
     const notes = document.getElementById('inspNotes');
     if (notes) {
       const save = MT.util.debounce(async () => {
@@ -382,6 +462,90 @@ MT.inspector = (function () {
       }, 500);
       notes.addEventListener('input', save);
     }
+  }
+
+
+  function wireProgress(item) {
+    const host = el();
+    const range = document.getElementById('prgRange');
+    const minutes = document.getElementById('prgMinutes');
+    const season = document.getElementById('prgSeason');
+    const episode = document.getElementById('prgEpisode');
+
+    const reflect = fresh => {
+      if (!fresh) return;
+      const f = MT.ui.progressFraction(fresh);
+      const pct = f == null ? null : Math.round(f * 100);
+      const val = document.getElementById('prgVal');
+      if (val) {
+        val.textContent = fresh.kind === 'game'
+          ? `${(fresh.user.progress && fresh.user.progress.percent) || 0}%`
+          : (pct == null ? '' : `${pct}%`);
+      }
+      const meter = host.querySelector('.prgmeter i');
+      if (meter && pct != null) meter.style.width = pct + '%';
+      /* The status segment can move as a side effect of recording progress. */
+      for (const b of host.querySelectorAll('[data-status]')) {
+        b.setAttribute('aria-pressed', String(b.dataset.status === fresh.user.status));
+      }
+      invalidate();
+      MT.router.resolve();
+    };
+
+    /* `input` for the live readout, `change` for the write \u2014 dragging a slider
+       fires input on every pixel, and one IndexedDB write per pixel is exactly
+       the sort of thing that makes a pane stutter. */
+    if (range) {
+      range.oninput = () => {
+        const val = document.getElementById('prgVal');
+        if (!val) return;
+        val.textContent = item.kind === 'game'
+          ? `${range.value}%`
+          : (item.runtimeMin ? `${Math.round((+range.value / item.runtimeMin) * 100)}%` : '');
+      };
+      range.onchange = async () => {
+        const patch = item.kind === 'game' ? { percent: +range.value } : { minutes: +range.value };
+        reflect(await MT.ui.setProgress(item.uid, patch));
+      };
+    }
+
+    if (minutes) {
+      minutes.onchange = async () => {
+        reflect(await MT.ui.setProgress(item.uid, { minutes: +minutes.value }));
+        const r = document.getElementById('prgRange');
+        if (r) r.value = minutes.value;
+      };
+    }
+
+    const saveTv = async () => {
+      reflect(await MT.ui.setProgress(item.uid, {
+        season: season ? +season.value : undefined,
+        episode: episode ? +episode.value : undefined,
+      }));
+    };
+    if (season) season.onchange = saveTv;
+    if (episode) episode.onchange = saveTv;
+
+    host.querySelectorAll('[data-prg]').forEach(b => {
+      b.onclick = async e => {
+        e.stopPropagation();
+        if (b.dataset.prg === 'clear') {
+          await MT.ui.setProgress(item.uid,
+            { minutes: null, percent: null, season: null, episode: null });
+          invalidate();
+          show(item.uid);
+          MT.router.resolve();
+          return;
+        }
+        if (b.dataset.prg === 'ep+1') {
+          const cur = await MT.repo.getItem(item.uid);
+          const p = (cur && cur.user.progress) || {};
+          const next = (p.episode || 0) + 1;
+          if (episode) episode.value = next;
+          reflect(await MT.ui.setProgress(item.uid, { season: p.season || 1, episode: next }));
+        }
+      };
+    });
   }
 
   function markSelected(uid) {

@@ -173,6 +173,37 @@ MT.tmdb = (function () {
     return data.results || [];
   }
 
+  /* ── Releases in a date window ─────────────────────────────────────────
+     The parameter differs by kind and getting it wrong fails silently:
+     movies filter on primary_release_date, television on first_air_date —
+     which means NEW series, the honest analogue of a film's release. Returning
+     series are already covered by Coming Up for anything you track.
+
+     Sorted by popularity rather than by date: a date-ascending window is
+     mostly titles nobody has heard of, and the date is on every row anyway.
+     A vote_count floor would be wrong here — an unreleased film has no votes
+     at all, so the floor is explicitly 0. */
+  async function releasesBetween(kind, fromISO, toISO, opts) {
+    requireKey();
+    opts = opts || {};
+    const tv = kind === 'tv' || kind === 'anime';
+    const p = {
+      'vote_count.gte': 0,
+      sort_by: 'popularity.desc',
+      include_adult: MT.config.get('includeAdult') ? 'true' : 'false',
+      page: opts.page || 1,
+      [tv ? 'first_air_date.gte' : 'primary_release_date.gte']: fromISO,
+      [tv ? 'first_air_date.lte' : 'primary_release_date.lte']: toISO,
+    };
+    /* Anime is a facet, not a kind — matched the same way 38-normalize does it,
+       so what appears here is what the library will file as anime. */
+    if (kind === 'anime') { p.with_genres = 16; p.with_origin_country = 'JP'; }
+
+    const data = await MT.net.get('tmdb', url(tv ? '/discover/tv' : '/discover/movie', p),
+      { ttl: MT.TTL.search, signal: opts.signal });
+    return (data.results || []).map(r => Object.assign({ media_type: tv ? 'tv' : 'movie' }, r));
+  }
+
   async function trending(window_) {
     requireKey();
     const data = await MT.net.get('tmdb', url(`/trending/all/${window_ || 'week'}`), { ttl: MT.TTL.search });
@@ -204,6 +235,7 @@ MT.tmdb = (function () {
   return {
     url, searchMulti, searchKind, searchPerson, searchCompany, details, discover, OR, AND,
     personCredits, person, companyReleases, collection, providerList, trending,
+    releasesBetween,
     img, verifyKey, requireKey,
     APPEND_MOVIE, APPEND_TV,
   };
