@@ -317,12 +317,18 @@ MT.repo = (function () {
 
   /* ── Export / import ───────────────────────────────────────────────── */
 
+  /* Stores that genuinely have to travel between devices. Deliberately NOT
+     here: `snapshots` (per-device change-detection state — a fresh device
+     re-baselines and, by the cold-snapshot rule, emits nothing), `idIndex`
+     (rebuilt from items below), `df`/`dfSeen` (the recommender's local corpus,
+     which re-accumulates), and `cache`. */
+  const SYNC_STORES = ['items', 'follows', 'dismissed', 'alertKeys',
+                       'feedItems', 'history', 'deleted'];
+
   async function exportAll() {
     const payload = {};
-    for (const s of ['items', 'idIndex', 'follows', 'dismissed', 'alertKeys',
-                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen', 'deleted']) {
-      payload[s] = await MT.db.getAll(s);
-    }
+    for (const s of SYNC_STORES) payload[s] = await MT.db.getAll(s);
+    payload.items = payload.items.map(MT.normalize.leanForSync);
     payload.meta = { settings: MT.config.exportable(), dfN: await metaGet('df.N') };
     const doc = {
       app: 'movietrak', kind: 'movietrak.export', schemaVersion: 1,
@@ -343,14 +349,24 @@ MT.repo = (function () {
     if (!doc || doc.app !== 'movietrak') throw new Error('Not a MovieTrak export file.');
     if (doc.schemaVersion !== 1) throw new Error(`Unsupported export version ${doc.schemaVersion}.`);
     const p = doc.payload || {};
-    for (const s of ['items', 'idIndex', 'follows', 'dismissed', 'alertKeys',
-                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen', 'deleted']) {
+
+    /* Keep whatever detail this device already has, so a sync does not throw
+       away records we would only have to fetch again. */
+    const localItems = new Map((await MT.db.getAll('items')).map(i => [i.uid, i]));
+
+    for (const s of SYNC_STORES) {
       await MT.db.clear(s);
-      if (Array.isArray(p[s]) && p[s].length) {
-        const rows = s === 'history' ? p[s].map(r => { const c = { ...r }; delete c.id; return c; }) : p[s];
-        await MT.db.putMany(s, rows);
-      }
+      if (!Array.isArray(p[s]) || !p[s].length) continue;
+      let rows = p[s];
+      if (s === 'history') rows = rows.map(r => { const c = { ...r }; delete c.id; return c; });
+      if (s === 'items') rows = rows.map(r => MT.normalize.absorbSynced(localItems.get(r.uid), r));
+      await MT.db.putMany(s, rows);
     }
+
+    /* idIndex is a pure function of items, so it is rebuilt rather than
+       shipped — it was 19 KB of every commit for nothing. */
+    await MT.db.clear('idIndex');
+    for (const it of (await MT.db.getAll('items'))) await writeIdIndex(it);
     if (p.meta) {
       if (p.meta.settings) MT.config.importSettings(p.meta.settings);
       if (p.meta.dfN != null) await metaSet('df.N', p.meta.dfN);

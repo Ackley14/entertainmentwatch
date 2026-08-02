@@ -575,6 +575,61 @@ MT.normalize = (function () {
     cur[parts[parts.length - 1]] = value;
   }
 
+  /* ── What actually needs to travel ─────────────────────────────────────
+     The synced file carries YOUR data. Everything else on a record came from
+     an API and can be fetched again, so shipping it means paying for it in
+     every commit forever — and because the file is encrypted, git cannot
+     delta-compress successive versions, so each save stores a full fresh copy.
+
+     Measured at 200 titles: 11.1 KB per item, of which rec.candidates alone
+     was 5.6 KB and people/keywords/overview/companies another 3.1 KB. Dropping
+     those is most of a 2.35 MB payload.
+
+     rec.terms STAYS despite being derived: it is only ~800 B and it is what
+     lets recommendations work on a new device before anything is re-fetched.
+
+     `meta.partial` is set so the existing hydrate path refills the rest the
+     first time you open the item — machinery that already exists for search
+     stubs. */
+  const SYNC_DROP = ['people', 'keywords', 'companies', 'overview', 'tagline',
+                     'providers', 'idx', 'homepage', 'countries', 'languages'];
+
+  function leanForSync(item) {
+    const out = {};
+    for (const [k, v] of Object.entries(item)) {
+      if (SYNC_DROP.includes(k)) continue;
+      out[k] = v;
+    }
+    out.genres = (item.genres || []).map(g => ({ id: g.id, name: g.name, source: g.source }));
+    out.rec = {
+      fetchedAt: 0,
+      franchiseKey: item.rec && item.rec.franchiseKey,
+      terms: (item.rec && item.rec.terms) || {},
+      candidates: {},                       // the single biggest line item
+      seedEligible: (item.rec && item.rec.seedEligible) || 0,
+    };
+    out.meta = Object.assign({}, item.meta, { partial: 1 });
+    return out;
+  }
+
+  /* Bringing a synced record back in. If this device already holds the full
+     record, keep the API-derived half and take only what the other device
+     actually changed — otherwise every sync would throw away local detail and
+     force a re-fetch of things we already had. */
+  function absorbSynced(local, incoming) {
+    if (!local || local.meta.partial) return incoming;
+    const merged = Object.assign({}, local);
+    merged.user = incoming.user;
+    merged.tracking = incoming.tracking;
+    merged.release = incoming.release || local.release;
+    merged.ratings = Object.assign({}, local.ratings, prune(incoming.ratings));
+    merged.ids = Object.assign({}, local.ids, prune(incoming.ids));
+    merged.meta = Object.assign({}, local.meta, {
+      manualOverrides: (incoming.meta && incoming.meta.manualOverrides) || local.meta.manualOverrides,
+    });
+    return merged;
+  }
+
   /* A brand-new item needs default user state and refresh bookkeeping. */
   function withDefaults(item, status, source) {
     item.user = Object.assign({
@@ -594,7 +649,7 @@ MT.normalize = (function () {
     uidOf, parseUid, buildRelease, emptyRelease, buildTerms,
     summarize, candidateToStub,
     fromTmdb, stubFromTmdbSearch, fromRawg, stubFromRawgSearch,
-    mergeItem, withDefaults, setPath,
+    mergeItem, withDefaults, setPath, leanForSync, absorbSynced,
     TMDB_STATUS, STATUS_RANK,
   };
 })();

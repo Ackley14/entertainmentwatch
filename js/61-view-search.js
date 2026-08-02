@@ -145,7 +145,7 @@ MT.viewSearch = (function () {
   /* ── Fetching ─────────────────────────────────────────────────────────── */
 
   async function go(q, opts) {
-    opts = opts || {};
+    void (opts || {});
     query = q;
     const host = document.getElementById('results');
     if (!host) return;
@@ -188,7 +188,12 @@ MT.viewSearch = (function () {
     cursor = -1;
     host.classList.remove('is-stale');
     paint();
-    if (!opts.keepFocus) { const i = document.getElementById('q'); if (i) i.setSelectionRange(q.length, q.length); }
+    /* NOTHING here may touch the input's value or selection. An earlier
+       version moved the caret to the end of the query it had STARTED with,
+       which lands mid-word if you kept typing during the fetch — so the next
+       keystrokes insert at the wrong offset and the word comes out scrambled
+       ("the dog stars" -> "gthe do stars"). The caret is already where the
+       user put it; leave it alone. */
   }
 
   /* Each tab pays only for what it shows. */
