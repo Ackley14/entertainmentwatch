@@ -21,9 +21,11 @@ MT.viewUp = (function () {
     if (q.kind === 'anime') rows = rows.filter(i => i.facets && i.facets.anime);
     else if (q.kind) rows = rows.filter(i => i.kind === q.kind);
 
-    const undated = rows.filter(i => i.release.sortKey >= MT.util.SK_UNKNOWN);
-    const dated = rows.filter(i => i.release.sortKey < MT.util.SK_UNKNOWN && i.release.sortKey >= today)
-      .sort((a, b) => a.release.sortKey - b.release.sortKey);
+    /* A series belongs here on its NEXT episode, not the year it premiered. */
+    const keyOf = i => MT.ui.upcomingRelease(i).sortKey;
+    const undated = rows.filter(i => keyOf(i) >= MT.util.SK_UNKNOWN);
+    const dated = rows.filter(i => keyOf(i) < MT.util.SK_UNKNOWN && keyOf(i) >= today)
+      .sort((a, b) => keyOf(a) - keyOf(b));
 
     const showing = q.undated ? undated : dated;
     MT.ui.crumb(['Schedule', q.undated ? 'No date set' : 'Coming up']);
@@ -36,7 +38,7 @@ MT.viewUp = (function () {
     /* The window is anchored on today and always spans at least two years, so
        bands stay comparable between visits. */
     const startY = MT.util.sortKeyToParts(today).y;
-    const endY = Math.max(startY + 2, ...dated.map(i => MT.util.sortKeyToParts(i.release.sortKey).y));
+    const endY = Math.max(startY + 2, ...dated.map(i => MT.util.sortKeyToParts(keyOf(i)).y));
     const span = { from: startY * 10000 + 101, to: endY * 10000 + 1231, startY, endY };
 
     view.innerHTML = `

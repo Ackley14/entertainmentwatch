@@ -155,11 +155,10 @@ MT.inspector = (function () {
         <div class="blk-h">Release</div>
         <dl class="kv">
           <dt>Status</dt><dd>${esc(MT.alerts.prettyStatus(rel.status))}</dd>
-          <dt>Date</dt><dd>${MT.ui.dateField(rel)}</dd>
+          <dt>${isTv ? 'First aired' : 'Date'}</dt><dd>${MT.ui.dateField(rel)}</dd>
+          ${isTv ? nextAirRow(item) : ''}
           <dt>Precision</dt><dd>${esc(rel.precision)}${rel.inferred ? ' <span class="faint">(inferred)</span>' : ''}</dd>
           ${rel.type ? `<dt>Channel</dt><dd>${esc(MT.alerts.prettyType(rel.type))}</dd>` : ''}
-          ${item.tvExtra && item.tvExtra.nextEpisode
-            ? `<dt>Next</dt><dd>S${item.tvExtra.nextEpisode.season} E${item.tvExtra.nextEpisode.episode}</dd>` : ''}
           ${item.tvExtra ? `<dt>Seasons</dt><dd>${item.tvExtra.seasonCount} · ${item.tvExtra.episodeCount} eps</dd>` : ''}
           ${item.gameExtra && item.gameExtra.playtimeHours ? `<dt>Typical</dt><dd>${item.gameExtra.playtimeHours}h</dd>` : ''}
         </dl>
@@ -289,6 +288,27 @@ MT.inspector = (function () {
         ? `of ${MT.util.runtimeStr(rt)}`
         : 'Runtime not known yet, so no percentage is shown.'}</div>
     </div>`;
+  }
+
+  /* The other half of the TV date pair. Rendered as its own labelled row so
+     the premiere and the next episode can never be mistaken for each other —
+     which is precisely what happened when one field carried both. */
+  function nextAirRow(item) {
+    const n = MT.ui.nextAir(item);
+    if (!n) return '';
+    if (n.state === 'dated' && n.release) {
+      const ep = (n.season != null && n.episode != null)
+        ? ` <span class="faint">S${n.season} E${n.episode}</span>` : '';
+      const name = n.name ? `<div class="faint" style="margin-top:3px">${esc(n.name)}</div>` : '';
+      return `<dt>Next episode</dt><dd>${MT.ui.dateField(n.release)}${ep}${name}</dd>`;
+    }
+    const say = {
+      tba: 'Returning &mdash; no date announced',
+      ended: 'Ended',
+      cancelled: 'Cancelled',
+      unknown: 'Nothing announced',
+    }[n.state] || '';
+    return `<dt>Next episode</dt><dd><span class="nextchip ${esc(n.state)}">${say}</span></dd>`;
   }
 
   function cert(item) {

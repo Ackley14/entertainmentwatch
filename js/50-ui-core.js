@@ -63,8 +63,20 @@ MT.ui = (function () {
     return `<span class="prec ${esc(prec)}">${esc(label)}</span>`;
   }
 
-  function dateCell(release) {
-    return `<span class="datecell">${waterline(release)}${dateField(release)}</span>`;
+  function dateCell(release, item) {
+    const n = item ? nextAir(item) : null;
+    /* A series shows both facts in one cell: when it started, and what is
+       coming. Without the second half the column is just "2016" for a show
+       returning next month, which is true and useless. */
+    /* The label collapses to a coloured dot on a phone. Spelled out it costs
+       ~50px of the release column, which comes straight out of the title —
+       measured, the title fell from 102px to 53px at 320px, undoing the whole
+       point of pinning the columns. The dot still separates returning from
+       ended at a glance, and the words are a tap away in the inspector. */
+    const chip = n
+      ? `<span class="nextchip ${esc(n.state)}"><i></i><b>${esc(nextAirLabel(item))}</b></span>`
+      : '';
+    return `<span class="datecell">${waterline(release)}${dateField(release)}${chip}</span>`;
   }
 
   /* Human phrasing, which must also respect precision — "in 3 days" against a
@@ -144,6 +156,50 @@ MT.ui = (function () {
     return `<span class="stat"><span class="dot c-${s} ${s === 'watching' ? 'fill' : ''}"></span>${STATUS_WORD[s]}</span>`;
   }
 
+  /* ── The TV date pair ───────────────────────────────────────────────────
+     `item.release` is when a series premiered. `tvExtra.next` is what happens
+     next. Every view has to read them the same way or they drift apart, so
+     both readings live here.
+
+     `upcomingRelease` answers "when is this next relevant" — the premiere for
+     a film or an unaired series, the next episode for one already running.
+     Coming Up and the refresh tiers both need that, and both would otherwise
+     file a returning show under the year it started. */
+  const NEXT_WORD = {
+    dated: 'Next', tba: 'Returning', ended: 'Ended',
+    cancelled: 'Cancelled', unknown: 'No date',
+  };
+
+  function nextAir(item) {
+    if (!item || item.kind !== 'tv') return null;
+    const n = item.tvExtra && item.tvExtra.next;
+    if (n) return n;
+    /* Records normalised before the split, or still meta.partial. */
+    const legacy = item.tvExtra && item.tvExtra.nextEpisode;
+    if (legacy && legacy.airDate) {
+      return { state: 'dated', release: null, season: legacy.season, episode: legacy.episode };
+    }
+    return { state: 'unknown', release: null };
+  }
+
+  function upcomingRelease(item) {
+    const n = nextAir(item);
+    if (n && n.state === 'dated' && n.release) return n.release;
+    return item.release;
+  }
+
+  /* A compact reading for a table row: the date when there is one, the state
+     word when there is not. */
+  function nextAirLabel(item) {
+    const n = nextAir(item);
+    if (!n) return '';
+    if (n.state === 'dated' && n.release) {
+      const ep = n.season != null && n.episode != null ? ` S${n.season}E${n.episode}` : '';
+      return shortWhen(n.release) + ep;
+    }
+    return NEXT_WORD[n.state] || '';
+  }
+
   /* ══ TABLE + GRID ═══════════════════════════════════════════════════════ */
   /* `drop` marks a column the phone layout hides (see 05-responsive.css).
      Type is deliberately NOT one of them: stripped of it, a narrow row is a
@@ -177,7 +233,7 @@ MT.ui = (function () {
       <td data-col="title"><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span>${progressBar(item)}</td>
       <td data-col="type">${kindTag(item)}</td>
       <td data-col="status" data-drop>${statusCell(item)}</td>
-      <td data-col="release">${dateCell(item.release)}</td>
+      <td data-col="release">${dateCell(item.release, item)}</td>
       <td data-col="progress" data-drop class="muted">${esc(progressText(item))}</td>
       <td data-col="rating" class="num mono">${u.rating != null ? esc(u.rating) + '<span class="faint">/10</span>' : '<span class="faint">·&nbsp;·</span>'}</td>
       <td data-col="added" data-drop class="num mono faint">${added ? esc(added.toISOString().slice(0, 10)) : ''}</td>
@@ -462,6 +518,7 @@ MT.ui = (function () {
   return {
     esc, dateField, waterline, precisionTag, dateCell, whenText, driftBadge,
     poster, posterUrl, chipart, hues, kindOf, kindTag, statusCell, shortWhen,
+    nextAir, upcomingRelease, nextAirLabel, NEXT_WORD,
     progressText, progressBar, progressFraction, progressOf, setProgress,
     table, tableRow, grid, COLUMNS,
     emptyState, errorBox, skeletonGrid, groupHead, toast, banner, crumb, paneActions,

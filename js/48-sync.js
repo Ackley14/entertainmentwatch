@@ -22,7 +22,11 @@ MT.sync = (function () {
     const t = item.tracking || {};
     if (t.mutedFlag) return 'T5';
 
-    const rel = item.release || {};
+    /* For a series this is the NEXT episode, not the premiere. Judged on
+       `release` alone, a show that began in 2016 and returns next week counts
+       as nine years old and drops to the slowest tier — so the app would stop
+       checking exactly when there was something to find. */
+    const rel = (MT.ui && MT.ui.upcomingRelease ? MT.ui.upcomingRelease(item) : item.release) || {};
     const days = rel.sortKey < MT.util.SK_UNKNOWN ? MT.util.daysUntil(rel.sortKey) : null;
     const status = rel.status;
     const airing = item.kind === 'tv' && (status === 'ongoing' || (item.tvExtra && item.tvExtra.inProduction));

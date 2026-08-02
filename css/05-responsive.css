@@ -183,6 +183,10 @@
 }
 
 @media (max-width: 460px) {
+  /* Below this the title is down to about 100px and every pixel of it counts,
+     so even the 11px state dot goes. The distinction is still one tap away in
+     the inspector, and Coming Up answers the same question directly. */
+  tbody .nextchip { display: none; }
   .toolbar { padding: var(--mt-space-3) var(--mt-space-5); }
   .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 13px var(--mt-space-4); padding: var(--mt-space-5); }
   .ratings { grid-template-columns: 1fr; }
@@ -367,4 +371,16 @@ select.chip { padding: 0 var(--mt-space-3); appearance: none; }
   .player { padding: var(--mt-space-4); }
   .player-card { width: 100%; }
   .player-frame { max-height: calc(100vh - 140px); }
+}
+
+@media (max-width: 560px) {
+  /* Words out, dot in. The release column is the tightest thing on a phone and
+     every pixel it takes comes out of the title. */
+  .nextchip { margin-left: 5px; padding: 0; background: none; }
+  .nextchip i { display: block; }
+  .nextchip b { display: none; }
+  /* The inspector has room, so it keeps the words. */
+  .kv .nextchip { padding: 0 5px; background: var(--mt-line-hairline); }
+  .kv .nextchip i { display: none; }
+  .kv .nextchip b { display: inline; }
 }

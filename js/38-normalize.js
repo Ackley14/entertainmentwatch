@@ -57,6 +57,44 @@ MT.normalize = (function () {
     return rel;
   }
 
+  /* ── What happens next for a series ─────────────────────────────────────
+     The second half of the TV date model. `release` says when a show STARTED;
+     this says what is coming, and it is deliberately a state machine rather
+     than a nullable date, because "no date" covers four different situations
+     that a viewer needs told apart:
+
+       dated      an episode has a confirmed air date
+       tba        it is coming back, but nobody has said when
+       ended      it finished, and will not return
+       cancelled  it was cut short
+       unknown    nothing is known either way
+
+     Only `dated` carries a release object, and that object goes through the
+     same precision machinery as everything else, so an episode announced for
+     "November" renders as a hatched month rather than inventing a day. */
+  function buildNextAir(raw, status, region) {
+    const nx = raw.next_episode_to_air;
+    if (nx && nx.air_date) {
+      const rel = buildRelease(nx.air_date, { status: 'announced', region, type: 'tv' });
+      return {
+        state: 'dated',
+        release: rel,
+        season: nx.season_number != null ? nx.season_number : null,
+        episode: nx.episode_number != null ? nx.episode_number : null,
+        name: nx.name || '',
+      };
+    }
+    if (status === 'cancelled') return { state: 'cancelled', release: null };
+    if (status === 'ended') return { state: 'ended', release: null };
+    /* Still being made, or TMDB still calls it returning, but no episode has
+       been scheduled — a real and common state for a show between seasons. */
+    if (raw.in_production || status === 'ongoing' || status === 'in_production'
+        || status === 'post_production' || status === 'announced') {
+      return { state: 'tba', release: null };
+    }
+    return { state: 'unknown', release: null };
+  }
+
   /* TMDB's production status strings → our ladder. The interesting values are
      the early ones: "Rumored" and "Planned" are precisely the titles the user
      means when they say "unannounced". */
@@ -120,11 +158,17 @@ MT.normalize = (function () {
 
     let release;
     if (isTv) {
+      /* `release` is the ORIGINAL air date and nothing else.
+
+         It used to be overwritten by the next episode's date whenever one was
+         scheduled, so the field meant "premiere" or "next episode" depending
+         on the day you looked, and the premiere date was destroyed outright
+         the moment a new season was announced. A show that began in 2016 and
+         returns in November read as a 2016 show all summer and a November one
+         thereafter, and nothing in the interface could tell you which you were
+         looking at. The two facts are now separate: this one, and
+         `tvExtra.next` below. */
       release = buildRelease(raw.first_air_date, { status, region, type: 'tv' });
-      if (raw.next_episode_to_air && raw.next_episode_to_air.air_date) {
-        const nx = buildRelease(raw.next_episode_to_air.air_date, { status, region, type: 'tv' });
-        if (nx.sortKey >= MT.util.todaySortKey()) release = nx;
-      }
     } else {
       const win = pickReleaseWindow(raw.release_dates, region);
       if (win && win.primary && win.primary.raw) {
@@ -205,7 +249,7 @@ MT.normalize = (function () {
         rawg: null, steam: null, anilist: null,
       },
 
-      tvExtra: isTv ? {
+      tvExtra: isTv ? Object.assign({
         seasonCount: raw.number_of_seasons || 0,
         episodeCount: raw.number_of_episodes || 0,
         episodeRunMin: (Array.isArray(raw.episode_run_time) && raw.episode_run_time[0]) || null,
@@ -217,7 +261,7 @@ MT.normalize = (function () {
           name: raw.next_episode_to_air.name,
           airDate: raw.next_episode_to_air.air_date,
         } : null,
-      } : undefined,
+      }, { next: buildNextAir(raw, status, region) }) : undefined,
 
       rec: {
         fetchedAt: Date.now(),

@@ -610,3 +610,24 @@ tbody td[data-col="title"] { position: relative; }
 
 .pricerow { display: flex; align-items: center; gap: var(--mt-space-4); }
 .pricenow { font-size: 19px; font-weight: 600; color: var(--mt-text-primary); }
+
+/* What happens next for a series. Colour-coded by state so a glance down the
+   Release column separates "returning" from "over" without reading. */
+.nextchip {
+  display: inline-flex; align-items: center; gap: 4px; height: 15px;
+  padding: 0 5px; margin-left: 6px;
+  border-radius: 3px; white-space: nowrap;
+  font-size: var(--mt-fs-micro); font-weight: 600; letter-spacing: .04em;
+  background: var(--mt-line-hairline); color: var(--mt-text-secondary);
+}
+/* The dot is the phone-sized version of the same fact; hidden where the words
+   are shown, so the two never both take up room. */
+.nextchip i { display: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.nextchip b { font-weight: 600; }
+.nextchip.unknown i { box-shadow: inset 0 0 0 1px currentColor; background: transparent; }
+.nextchip.dated     { background: var(--mt-teal-wash);  color: var(--mt-teal-text); }
+.nextchip.tba       { background: var(--mt-amber-wash); color: var(--mt-amber-text); }
+.nextchip.ended     { background: var(--mt-line-hairline); color: var(--mt-text-muted); }
+.nextchip.cancelled { background: var(--mt-coral-wash); color: var(--mt-coral-text); }
+.nextchip.unknown   { background: transparent; color: var(--mt-text-muted); }
+.kv .nextchip { margin-left: 0; }
