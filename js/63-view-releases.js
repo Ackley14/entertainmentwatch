@@ -51,9 +51,17 @@ MT.viewReleases = (function () {
      like the end of the catalogue. */
   const RAWG_MAX_PAGES = 10;
 
-  /* Below this, a record is a title and nothing else — page 10 of an
-     unfiltered week scores 0.34. Rows under it are never even kept. */
-  const NOISE_FLOOR = 0.3;
+  /* Below this a record is a title and nothing else, and it is never kept.
+     The two sources are on different scales and need different answers:
+
+     · TMDB `popularity` is a continuous score that never reaches 0 for a real
+       entry — page 10 of an unfiltered week still scores 0.34.
+     · RAWG `added` is an integer count of users holding the game. A genuinely
+       new listing sits at 0 precisely BECAUSE it is upcoming, so a floor here
+       would hide exactly what this view exists to show. Games rely on the
+       median instead, and "everything" really does mean everything. */
+  const NOISE_FLOOR = { tmdb: 0.3, rawg: 0 };
+  const noiseFor = kind => (kind === 'game' ? NOISE_FLOOR.rawg : NOISE_FLOOR.tmdb);
 
   const SLIDER_KEY = 'mt.releases.notability';
   const DEFAULT_POS = 50;
@@ -94,8 +102,9 @@ MT.viewReleases = (function () {
 
   function keyOf(kind, range) { return `${kind}|${range}`; }
 
-  function freshState() {
+  function freshState(kind) {
     return {
+      noise: noiseFor(kind),
       rows: [], seen: new Set(), dropped: 0,
       page: 0, totalPages: null, total: 0,
       done: false, loading: false, capped: false,
@@ -107,8 +116,8 @@ MT.viewReleases = (function () {
   /* The live floor for the current slider position. */
   function floorOf(st) {
     const k = multiplierFor(sliderPos);
-    if (!k) return NOISE_FLOOR;
-    return Math.max(NOISE_FLOOR, (st.scale || 0) * k);
+    if (!k) return st.noise;
+    return Math.max(st.noise, (st.scale || 0) * k);
   }
 
   async function render(params, query) {
@@ -163,7 +172,7 @@ MT.viewReleases = (function () {
     wire(view, kind, range, win);
 
     const key = keyOf(kind, range);
-    if (!state.has(key)) state.set(key, freshState());
+    if (!state.has(key)) state.set(key, freshState(kind));
     const st = state.get(key);
 
     if (st.rows.length) {
@@ -361,7 +370,7 @@ MT.viewReleases = (function () {
       /* Kept against the NOISE floor, not the slider's — the slider filters
          what is displayed, so everything it might reveal must already be
          here. */
-      if (score < NOISE_FLOOR) { st.belowNoise++; continue; }
+      if (score < st.noise) { st.belowNoise++; continue; }
 
       let stub;
       try {
