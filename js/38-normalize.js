@@ -520,7 +520,18 @@ MT.normalize = (function () {
     if (!existing) return fresh;
     const overrides = (existing.meta && existing.meta.manualOverrides) || {};
 
-    const merged = Object.assign({}, existing, fresh);
+    /* A refresh that came back thin must never erase what we already know.
+       Object.assign copies undefined values, so a partial or empty upstream
+       payload — a rate-limited response, a truncated body, an outage that
+       still returns 200 — would silently blank every field it omitted. A
+       record with no title is the visible symptom; the same mechanism would
+       quietly drop genres, credits and ids too.
+
+       If the payload has no title at all it is not a usable record, so the
+       refresh is discarded outright rather than merged. */
+    if (!fresh || !fresh.title) return existing;
+
+    const merged = Object.assign({}, existing, prune(fresh));
 
     /* User-authored state always wins. */
     merged.uid = existing.uid;

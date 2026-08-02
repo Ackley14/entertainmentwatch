@@ -15,7 +15,7 @@
 
 MT.db = (function () {
   const NAME = 'movietrak';
-  const VERSION = 1;
+  const VERSION = 2;
 
   let dbp = null;
   let mode = 'idb';                 // 'idb' | 'fallback'
@@ -73,10 +73,20 @@ MT.db = (function () {
 
       db.createObjectStore('meta', { keyPath: 'key' });
     },
+
+    /* v1 → v2 · deletion tombstones.
+       Merging two divergent libraries by union would resurrect every item
+       either side had deleted, because a missing record and a deleted record
+       look identical. A tombstone records the deletion so the merge can tell
+       them apart. */
+    function (db) {
+      const t = db.createObjectStore('deleted', { keyPath: 'uid' });
+      t.createIndex('by_deletedAt', 'deletedAt');
+    },
   ];
 
   const STORE_NAMES = ['items', 'idIndex', 'snapshots', 'alertKeys', 'feedItems',
-                       'dismissed', 'follows', 'cache', 'df', 'dfSeen', 'history', 'meta'];
+                       'dismissed', 'follows', 'cache', 'df', 'dfSeen', 'history', 'meta', 'deleted'];
 
   function open() {
     if (dbp) return dbp;
@@ -130,7 +140,7 @@ MT.db = (function () {
     if (store === 'history') return value.id != null ? value.id : (Date.now() + Math.random());
     const kp = { items: 'uid', idIndex: 'key', snapshots: 'uid', alertKeys: 'alertId',
                  feedItems: 'feedId', dismissed: 'uid', follows: 'id', cache: 'key',
-                 df: 'term', dfSeen: 'uid', meta: 'key' }[store];
+                 df: 'term', dfSeen: 'uid', meta: 'key', deleted: 'uid' }[store];
     return value[kp];
   }
 

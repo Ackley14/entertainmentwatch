@@ -80,6 +80,10 @@ MT.repo = (function () {
 
   async function deleteItem(uid) {
     const item = await getItem(uid);
+    /* Recorded BEFORE the delete, so a merge can tell "I removed this" from
+       "I have never seen this". */
+    await MT.db.put('deleted', { uid, deletedAt: Date.now(),
+                                 title: item ? item.title : null });
     await MT.db.del('items', uid);
     await MT.db.del('snapshots', uid);
     /* Cascade: leaving feed rows pointing at a deleted item produces alerts
@@ -316,7 +320,7 @@ MT.repo = (function () {
   async function exportAll() {
     const payload = {};
     for (const s of ['items', 'idIndex', 'follows', 'dismissed', 'alertKeys',
-                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen']) {
+                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen', 'deleted']) {
       payload[s] = await MT.db.getAll(s);
     }
     payload.meta = { settings: MT.config.exportable(), dfN: await metaGet('df.N') };
@@ -340,7 +344,7 @@ MT.repo = (function () {
     if (doc.schemaVersion !== 1) throw new Error(`Unsupported export version ${doc.schemaVersion}.`);
     const p = doc.payload || {};
     for (const s of ['items', 'idIndex', 'follows', 'dismissed', 'alertKeys',
-                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen']) {
+                     'feedItems', 'snapshots', 'history', 'df', 'dfSeen', 'deleted']) {
       await MT.db.clear(s);
       if (Array.isArray(p[s]) && p[s].length) {
         const rows = s === 'history' ? p[s].map(r => { const c = { ...r }; delete c.id; return c; }) : p[s];
@@ -366,6 +370,7 @@ MT.repo = (function () {
     getItem, allItems, countItems, putItem, putItemQuiet, deleteItem,
     resolveUid, idKeysFor, itemsByStatus, upcomingItems, itemsDueForRefresh,
     getSnapshot, putSnapshot,
+    tombstones: () => MT.db.getAll('deleted'),
     alertSeen, pushFeedItem, feedItems, unreadCount, markFeedRead, markAllFeedRead,
     dismiss, undismiss, dismissedSet, allDismissed,
     allFollows, getFollow, putFollow, deleteFollow,

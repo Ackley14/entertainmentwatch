@@ -184,22 +184,38 @@ MT.cloud = (function () {
     opts = opts || {};
     if (!MT.crypto.isUnlocked()) throw new Error('Locked — enter your passphrase first.');
 
-    /* One shared dataset means two devices can genuinely collide. Rather than
-       silently overwriting, check whether the file moved under us and let the
-       caller decide. */
+    let doc = await MT.repo.exportAll();
+
+    /* Another device wrote since we last read. MERGE rather than asking: both
+       sets of edits are real, and making someone choose between them is a poor
+       experience and a good way to lose work. The merge is record-level, so
+       two people editing different titles both keep their work; only an edit
+       to the SAME title has to pick a winner, and the newer one wins. */
     if (!opts.force) {
       const c = await checkConflict();
       if (c.conflict) {
-        const err = new Error('Another device saved changes since this one loaded the library.');
-        err.kind = 'conflict';
-        err.envelope = c.envelope;
-        throw err;
+        let theirs = null;
+        try { theirs = await MT.crypto.decryptJson(c.envelope); } catch (_) {}
+        if (theirs) {
+          const { doc: merged, stats } = mergeDocs(doc, theirs);
+          await MT.repo.importAll(merged);
+          doc = await MT.repo.exportAll();      // re-read: the store just changed
+          MT.repo.emit('sync:merged', stats);
+        }
+        /* Ours is stale by definition once they have written. */
+        await MT.repo.metaSet('cloud.sha', null);
       }
     }
-    const doc = await MT.repo.exportAll();
+
     doc.vault = { githubToken: tokenForWrite() || null };
     const envelope = await MT.crypto.encryptJson(doc);
     const res = await push(envelope, opts);
+
+    /* Record what we just wrote. Without this, the next save compares the
+       remote's updatedAt against a marker from sign-in, finds them different
+       — because WE changed it — and reports a conflict with itself. That was
+       the cause of the repeated save conflicts. */
+    await MT.repo.metaSet('cloud.knownRemoteAt', envelope.updatedAt);
     await MT.repo.metaSet('cloud.lastSyncedCounts', doc.counts);
     await MT.repo.metaSet('cloud.lastPushAt', Date.now());
     return { counts: doc.counts, commit: res.commit && res.commit.sha };
@@ -215,6 +231,102 @@ MT.cloud = (function () {
     await MT.repo.metaSet('cloud.lastPullAt', Date.now());
     await MT.repo.metaSet('cloud.knownRemoteAt', envelope.updatedAt || null);
     return counts;
+  }
+
+  /* ── Merging two divergent libraries ───────────────────────────────────
+     Record-level last-write-wins, not file-level. Whole-file LWW would throw
+     away everything the other device did since you loaded; per record, the two
+     sets of edits both survive unless they touched the same title, and then
+     the newer edit wins.
+
+     Deletions are the case a naive union gets wrong: a missing record and a
+     deleted record look identical, so union resurrects everything either side
+     removed. Tombstones are what make the difference visible. */
+  function mergeDocs(mine, theirs) {
+    const out = { schemaVersion: 1, payload: {} };
+    const A = mine.payload || {}, B = theirs.payload || {};
+    const stats = { added: 0, updated: 0, removed: 0 };
+
+    /* Tombstones from both sides, newest wins. */
+    const tombs = new Map();
+    for (const t of [].concat(A.deleted || [], B.deleted || [])) {
+      const prev = tombs.get(t.uid);
+      if (!prev || t.deletedAt > prev.deletedAt) tombs.set(t.uid, t);
+    }
+    out.payload.deleted = [...tombs.values()];
+
+    /* Items: newest user.updatedAt wins, unless a tombstone is newer still. */
+    const items = new Map();
+    for (const it of (A.items || [])) items.set(it.uid, it);
+    for (const it of (B.items || [])) {
+      const cur = items.get(it.uid);
+      if (!cur) { items.set(it.uid, it); stats.added++; continue; }
+      const a = (cur.user && cur.user.updatedAt) || 0;
+      const b = (it.user && it.user.updatedAt) || 0;
+      if (b > a) { items.set(it.uid, it); stats.updated++; }
+    }
+    for (const [uid, t] of tombs) {
+      const it = items.get(uid);
+      if (it && t.deletedAt >= ((it.user && it.user.updatedAt) || 0)) {
+        items.delete(uid); stats.removed++;
+      }
+    }
+    out.payload.items = [...items.values()];
+
+    const byKey = (key, rows, newer) => {
+      const m = new Map();
+      for (const r of rows) {
+        const k = r[key];
+        const cur = m.get(k);
+        if (!cur || newer(r, cur)) m.set(k, r);
+      }
+      return [...m.values()];
+    };
+
+    /* Append-only ledger: a plain union is correct, and is exactly why alert
+       ids are content-addressed. */
+    out.payload.alertKeys = byKey('alertId', [].concat(A.alertKeys || [], B.alertKeys || []),
+      (r, c) => (r.firstSeenAt || 0) < (c.firstSeenAt || 0));
+
+    /* Read anywhere counts as read everywhere. */
+    out.payload.feedItems = byKey('feedId', [].concat(A.feedItems || [], B.feedItems || []),
+      (r, c) => (r.lastAt || 0) > (c.lastAt || 0)).map(r => {
+        const other = [].concat(A.feedItems || [], B.feedItems || []).filter(x => x.feedId === r.feedId);
+        const read = other.map(x => x.readAt).filter(Boolean);
+        return read.length ? Object.assign({}, r, { readAt: Math.min(...read), readFlag: 1 }) : r;
+      });
+
+    out.payload.dismissed = byKey('uid', [].concat(A.dismissed || [], B.dismissed || []),
+      (r, c) => (r.dismissedAt || 0) > (c.dismissedAt || 0));
+    out.payload.follows = byKey('id', [].concat(A.follows || [], B.follows || []),
+      (r, c) => (r.lastCheckedAt || 0) > (c.lastCheckedAt || 0));
+    out.payload.snapshots = byKey('uid', [].concat(A.snapshots || [], B.snapshots || []),
+      (r, c) => (r.checkedAt || 0) > (c.checkedAt || 0));
+    out.payload.idIndex = byKey('key', [].concat(A.idIndex || [], B.idIndex || []), () => false);
+    out.payload.dfSeen = byKey('uid', [].concat(A.dfSeen || [], B.dfSeen || []), () => false);
+
+    /* Document frequency is a count of things seen; the larger side has seen
+       more, so max is the right merge. */
+    const df = new Map();
+    for (const r of [].concat(A.df || [], B.df || [])) {
+      df.set(r.term, Math.max(df.get(r.term) || 0, r.n || 0));
+    }
+    out.payload.df = [...df.entries()].map(([term, n]) => ({ term, n }));
+
+    /* History is an event log — dedupe on the event itself, not on a local id. */
+    const hist = new Map();
+    for (const h of [].concat(A.history || [], B.history || [])) {
+      hist.set(`${h.uid}|${h.event}|${h.at}`, h);
+    }
+    out.payload.history = [...hist.values()];
+
+    /* Local settings win: they describe this device, not the library. */
+    out.payload.meta = A.meta || B.meta;
+    out.counts = Object.fromEntries(Object.entries(out.payload)
+      .filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, v.length]));
+    out.app = 'movietrak'; out.kind = 'movietrak.export';
+    out.exportedAt = new Date().toISOString();
+    return { doc: out, stats };
   }
 
   /* Before overwriting the shared file, check nobody else has written since we
@@ -326,7 +438,7 @@ MT.cloud = (function () {
   return {
     repo, setRepo, token, setToken, hasToken, clearToken, path, configured,
     tokenForWrite, setVaultToken, hasWriteToken,
-    pullEnvelope, push, publish, restore, syncDown, checkConflict, changePassphrase,
+    pullEnvelope, push, publish, restore, syncDown, checkConflict, changePassphrase, mergeDocs,
     peek, status, verifyToken,
   };
 })();

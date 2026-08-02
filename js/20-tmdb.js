@@ -53,6 +53,19 @@ MT.tmdb = (function () {
     return (data.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
   }
 
+  /* Per-kind search, for the category tabs. /search/multi is still used for
+     the "All" tab because it is one request instead of two. */
+  async function searchKind(kind, query, opts) {
+    requireKey();
+    opts = opts || {};
+    const data = await MT.net.get('tmdb', url(`/search/${kind === 'tv' ? 'tv' : 'movie'}`, {
+      query,
+      include_adult: MT.config.get('includeAdult') ? 'true' : 'false',
+      page: opts.page || 1,
+    }), { ttl: MT.TTL.search, signal: opts.signal });
+    return (data.results || []).map(r => Object.assign({ media_type: kind }, r));
+  }
+
   async function searchPerson(query, opts) {
     requireKey();
     opts = opts || {};
@@ -189,7 +202,7 @@ MT.tmdb = (function () {
   }
 
   return {
-    url, searchMulti, searchPerson, searchCompany, details, discover, OR, AND,
+    url, searchMulti, searchKind, searchPerson, searchCompany, details, discover, OR, AND,
     personCredits, person, companyReleases, collection, providerList, trending,
     img, verifyKey, requireKey,
     APPEND_MOVIE, APPEND_TV,

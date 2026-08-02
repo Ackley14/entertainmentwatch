@@ -97,27 +97,27 @@ MT.boot = (function () {
   }
 
   /* ── Encrypted publish ────────────────────────────────────────────────
-     Every save is a git commit, so writes are debounced hard. GitHub's binding
-     limit here is the secondary one — 80 content-generating requests a minute
-     — which a per-keystroke push would hit while typing notes. */
+     Saves should feel immediate, but every one is a git commit and GitHub's
+     binding limit here is the secondary one — 80 content-generating requests
+     a minute. So: fire quickly after a change, but never closer together than
+     MIN_GAP. A burst of edits coalesces into one commit; a single edit lands
+     in about a second. */
+  const SAVE_DELAY = 900;
+  const MIN_GAP = 4000;
+  let lastPushAt = 0;
+
   function schedulePush() {
     if (!MT.crypto.isUnlocked() || !MT.cloud.hasWriteToken() || !MT.cloud.configured()) return;
     pendingPush = true;
     clearTimeout(pushTimer);
+    const since = Date.now() - lastPushAt;
+    const wait = Math.max(SAVE_DELAY, MIN_GAP - since);
     pushTimer = setTimeout(async () => {
+      lastPushAt = Date.now();
       refreshFooter('saving');
       try { await MT.cloud.publish(); refreshFooter(); }
       catch (e) {
-        if (e && e.kind === 'conflict') {
-          /* Two devices, one dataset. Never silently pick a winner. */
-          MT.ui.banner('Another device saved changes since this one loaded the library. Saving is paused so nothing is lost.', {
-            actionLabel: 'Load theirs (discards local changes)',
-            onAction: async () => {
-              try { await MT.cloud.restore(e.envelope); location.reload(); }
-              catch (err) { MT.ui.toast(err.message || 'Could not load', { bad: true }); }
-            },
-          });
-        } else {
+        {
           refreshFooter('error');
           /* A dead or expired token is the one thing that silently stops the
              whole model working, so it is never a passing toast. */
@@ -129,7 +129,7 @@ MT.boot = (function () {
         }
       }
       finally { pendingPush = false; }
-    }, 6000);
+    }, wait);
   }
 
   function flushOnExit() {
@@ -191,8 +191,25 @@ MT.boot = (function () {
     MT.inspector.init();
     await MT.tree.refresh();
 
-    MT.repo.subscribe(ev => {
-      if (ev === 'item:put' || ev === 'item:delete' || ev === 'follow:change') schedulePush();
+    MT.repo.subscribe((ev, detail) => {
+      if (ev === 'item:put' || ev === 'item:delete' || ev === 'follow:change' ||
+          ev === 'feed:change') schedulePush();
+      /* A merge happened during a save: say so plainly and refresh what is on
+         screen, because the library just changed underneath the user. */
+      if (ev === 'sync:merged') {
+        const s2 = detail || {};
+        const bits = [];
+        if (s2.added) bits.push(`${s2.added} added`);
+        if (s2.updated) bits.push(`${s2.updated} updated`);
+        if (s2.removed) bits.push(`${s2.removed} removed`);
+        MT.ui.toast(
+          bits.length
+            ? `Changes from another device merged in — ${bits.join(', ')}.`
+            : 'Changes from another device merged in.',
+          { ms: 6000 });
+        MT.tree.refresh();
+        MT.router.resolve();
+      }
     });
 
     MT.router.start();

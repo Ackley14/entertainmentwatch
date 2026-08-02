@@ -281,3 +281,23 @@ select.chip { padding: 0 var(--mt-space-3); appearance: none; }
   .insp .ratings { grid-template-columns: 1fr 1fr; }
   .insp .strip { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Keyboard selection in the search results list. */
+.miss.is-sel { background: var(--mt-teal-wash); box-shadow: inset var(--mt-marker-w) 0 0 var(--mt-teal); }
+
+/* Results being replaced: dim rather than tear down, so the list keeps its
+   height and nothing jumps under a thumb mid-type. */
+#results.is-stale { opacity: .55; transition: opacity 120ms var(--mt-ease); }
+#results.is-stale .miss { pointer-events: none; }
+
+/* Rows are uniform and numerous — let the browser skip the offscreen ones. */
+.miss { content-visibility: auto; contain-intrinsic-size: auto 52px; }
+
+/* The Add control is a real button with a real hit area — the row itself no
+   longer adds anything, so a flick-scroll cannot add a title by accident. */
+.miss .add { flex: 0 0 auto; cursor: pointer; }
+.miss .add.is-in { border-color: var(--mt-teal-edge); color: var(--mt-teal-text); background: var(--mt-teal-wash); }
+@media (pointer: coarse) {
+  .miss .add { min-height: 40px; min-width: 64px; display: grid; place-items: center; font-size: var(--mt-fs-base); }
+  .miss { gap: var(--mt-space-3); padding-top: var(--mt-space-3); padding-bottom: var(--mt-space-3); }
+}

@@ -230,7 +230,16 @@ MT.tree = (function () {
       if (mq.addEventListener) mq.addEventListener('change', syncDrawers);
       else if (mq.addListener) mq.addListener(syncDrawers);
     }
-    window.addEventListener('resize', MT.util.debounce(syncDrawers, 150));
+    /* Width only. With interactive-widget=resizes-content, opening the
+       on-screen keyboard resizes the viewport HEIGHT on every focus — and
+       re-running the drawer sync on each of those was a visible stutter while
+       typing. No breakpoint in this app is keyed on height. */
+    let lastW = window.innerWidth;
+    window.addEventListener('resize', MT.util.debounce(() => {
+      if (window.innerWidth === lastW) return;
+      lastW = window.innerWidth;
+      syncDrawers();
+    }, 150));
 
     MT.repo.subscribe(ev => {
       if (ev === 'item:put' || ev === 'item:delete' || ev === 'feed:change' ||

@@ -212,6 +212,96 @@ MT.util = (function () {
     return h ? `${h}h ${m}m` : `${m}m`;
   }
 
+  /* ── Relevance ─────────────────────────────────────────────────────────
+     Providers rank by their own popularity metric, and those metrics are not
+     comparable across sources: TMDB popularity for "Practical Magic" is 7.9
+     while RAWG's `added` for "Magic: The Gathering" is 226. Feeding both into
+     one sort put every game above every film. Worse, RAWG's search matches any
+     token, so "practical magic" returns half a dozen games with no "practical"
+     in them at all.
+
+     So relevance is computed here, from the query and the title, and the
+     provider's popularity is demoted to a tiebreak within a band. */
+
+  function normalizeTitle(s) {
+    if (!s) return '';
+    let t = String(s).toLowerCase();
+    try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (_) {}
+    return t.replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  /* Returns { score 0..1, coverage 0..1 }. Coverage is the share of query
+     words present in the title, and is what the caller filters on — score
+     additionally rewards contiguity and word order. */
+  function relevance(query, title) {
+    const q = normalizeTitle(query);
+    const t = normalizeTitle(title);
+    if (!q || !t) return { score: 0, coverage: 0 };
+
+    const qs = q.split(' ').filter(Boolean);
+    const ts = t.split(' ').filter(Boolean);
+    if (!qs.length) return { score: 0, coverage: 0 };
+
+    let matched = 0;
+    for (const w of qs) {
+      /* A whole word, or a prefix of one — so "prac" still finds "practical"
+         while the user is still typing. */
+      if (ts.some(x => x === w || x.startsWith(w))) matched++;
+    }
+    const coverage = matched / qs.length;
+
+    let score;
+    if (t === q) score = 1;
+    else if (t.startsWith(q)) score = 0.94;
+    else if (t.includes(q)) score = 0.86;
+    else score = 0.7 * coverage;
+
+    /* A short query matching a very long title is a weaker signal than the
+       same query matching a title its own length. */
+    if (score < 0.86 && ts.length > qs.length) {
+      score *= Math.max(0.55, qs.length / ts.length) ** 0.35;
+    }
+    return { score, coverage };
+  }
+
+  /* Rank a mixed result set by relevance, using each provider's own popularity
+     only to break ties WITHIN a relevance band — never across bands.
+
+     The filter is adaptive: for a multi-word query, insist every word appears,
+     which is what stops "Magic: The Gathering" answering "practical magic".
+     If that leaves too little, relax rather than show an empty screen. */
+  function rankByRelevance(query, rows, opts) {
+    opts = opts || {};
+    const scored = rows.map(r => {
+      const best = [r.title, r.originalTitle]
+        .filter(Boolean)
+        .map(t => relevance(query, t))
+        .sort((a, b) => b.score - a.score)[0] || { score: 0, coverage: 0 };
+      return Object.assign({}, r, { _score: best.score, _coverage: best.coverage });
+    });
+
+    const multiWord = normalizeTitle(query).split(' ').filter(Boolean).length > 1;
+    let kept = scored.filter(r => r._coverage >= (multiWord ? 1 : 0.5));
+    /* Relax ONLY when nothing matched every word. Padding a good result set
+       with partial matches is what produced the original complaint: two solid
+       hits for "practical magic" followed by games that merely contain
+       "magic". If something matches all of it, that is the answer. */
+    if (!kept.length) kept = scored.filter(r => r._coverage >= 0.5);
+    if (!kept.length) kept = scored.filter(r => r._score > 0);
+
+    /* Banded at 0.05 so popularity can order near-equal matches while a
+       genuinely better title match still wins. One decimal was too coarse: it
+       collapsed "starts with the query" (0.94) and "contains it somewhere"
+       (0.86) into the same band, so popularity decided — and for the query
+       "magic", "Practical Magic" beat "Magic: The Gathering". */
+    kept.sort((a, b) => {
+      const band = Math.round(b._score * 20) - Math.round(a._score * 20);
+      if (band) return band;
+      return (b.pop || 0) - (a.pop || 0);
+    });
+    return kept;
+  }
+
   /* ── Hashing ───────────────────────────────────────────────────────────
      FNV-1a, 64-bit-ish via two 32-bit lanes. Used for content-addressed alert
      ids and cache keys — it needs to be stable and fast, not cryptographic. */
@@ -283,6 +373,7 @@ MT.util = (function () {
     derivePrecision, quarterOf, displayRelease, shortDate,
     relativeDays, timeAgo, dayLabel,
     escapeHtml, sortTitleOf, truncate, pluralize, formatVotes, runtimeStr,
+    normalizeTitle, relevance, rankByRelevance,
     fnv1a, debounce, sleep, deepGet, uniqBy, clamp, bytesStr,
     todayStamp, monthStamp,
   };
