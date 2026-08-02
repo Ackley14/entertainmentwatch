@@ -179,21 +179,27 @@ MT.tmdb = (function () {
      which means NEW series, the honest analogue of a film's release. Returning
      series are already covered by Coming Up for anything you track.
 
-     Sorted by popularity rather than by date: a date-ascending window is
-     mostly titles nobody has heard of, and the date is on every row anyway.
      A vote_count floor would be wrong here — an unreleased film has no votes
-     at all, so the floor is explicitly 0. */
+     at all, so the floor is explicitly 0.
+
+     Sort order is the caller's, and it is not cosmetic once paging exists.
+     Popularity puts the notable titles first but scatters dates, so page 2
+     holds less popular films with EARLIER dates — re-sorting an accumulating
+     list by date would then reshuffle everything already on screen every time
+     a page arrived. Date-ascending pages arrive in order and append cleanly,
+     which is what a release calendar wants. */
   async function releasesBetween(kind, fromISO, toISO, opts) {
     requireKey();
     opts = opts || {};
     const tv = kind === 'tv' || kind === 'anime';
+    const dateField = tv ? 'first_air_date' : 'primary_release_date';
     const p = {
       'vote_count.gte': 0,
-      sort_by: 'popularity.desc',
+      sort_by: opts.sort === 'popular' ? 'popularity.desc' : `${dateField}.asc`,
       include_adult: MT.config.get('includeAdult') ? 'true' : 'false',
       page: opts.page || 1,
-      [tv ? 'first_air_date.gte' : 'primary_release_date.gte']: fromISO,
-      [tv ? 'first_air_date.lte' : 'primary_release_date.lte']: toISO,
+      [`${dateField}.gte`]: fromISO,
+      [`${dateField}.lte`]: toISO,
     };
     /* Anime is a facet, not a kind — matched the same way 38-normalize does it,
        so what appears here is what the library will file as anime. */
@@ -201,7 +207,14 @@ MT.tmdb = (function () {
 
     const data = await MT.net.get('tmdb', url(tv ? '/discover/tv' : '/discover/movie', p),
       { ttl: MT.TTL.search, signal: opts.signal });
-    return (data.results || []).map(r => Object.assign({ media_type: tv ? 'tv' : 'movie' }, r));
+    return {
+      results: (data.results || []).map(r => Object.assign({ media_type: tv ? 'tv' : 'movie' }, r)),
+      page: data.page || 1,
+      /* TMDB will report a total_pages far past what it will actually serve —
+         page 501 is a hard error regardless of the count it quotes. */
+      totalPages: Math.min(data.total_pages || 1, 500),
+      total: data.total_results || 0,
+    };
   }
 
   async function trending(window_) {

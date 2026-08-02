@@ -136,13 +136,22 @@ MT.rawg = (function () {
   async function releasesBetween(fromISO, toISO, opts) {
     requireKey();
     opts = opts || {};
+    const size = opts.limit || 20;
     const data = await MT.net.get('rawg', url('/games', {
       dates: `${fromISO},${toISO}`,
-      ordering: '-added',
-      page_size: opts.limit || 20,
+      ordering: opts.sort === 'popular' ? '-added' : 'released',
+      page_size: size,
       page: opts.page || 1,
     }), { ttl: MT.TTL.search, signal: opts.signal });
-    return data.results || [];
+    const results = data.results || [];
+    return {
+      results,
+      page: opts.page || 1,
+      /* RAWG gives a `next` URL rather than a page count. Trusting `count`
+         alone over-reports, because it counts before any filtering. */
+      totalPages: data.next ? (opts.page || 1) + 1 : (opts.page || 1),
+      total: data.count || results.length,
+    };
   }
 
   return { url, search, game, series, byFilters, tagSemantics, catalogueSize,
