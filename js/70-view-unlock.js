@@ -1,94 +1,185 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   #/unlock — the sign-in screen.
+   The gate.
 
-   It looks like a login and behaves like one, but nothing is being checked
-   against a stored secret. The passphrase derives an AES key; if the library
-   decrypts, the passphrase was right. There is no "wrong password" branch in
-   the code to skip, and no verifier in the repository to attack.
+   The repository — not this browser — holds the library. Any device that can
+   reach the published file and knows the passphrase gets the same single
+   dataset, including the token needed to write changes back. Other people run
+   their own copy by forking the repo; there are no user accounts here, because
+   one repo is one library.
+
+   Nothing is checked against a stored secret, because there isn't one. The
+   passphrase derives an AES-256 key; if the file decrypts, it was right. There
+   is no "wrong password" branch to bypass and no verifier in the repo to
+   attack — without the key the bytes are noise.
    ══════════════════════════════════════════════════════════════════════════ */
 
-MT.viewUnlock = (function () {
+MT.gate = (function () {
   const esc = MT.util.escapeHtml;
+  let remote = null;
 
-  async function render(params, query) {
-    const view = document.getElementById('view');
-    const mode = (query && query.mode) || '';
+  const el = () => document.getElementById('gate');
 
+  function show(html) {
+    const g = el();
+    g.innerHTML = `<div class="gate__panel">${html}</div>`;
+    g.hidden = false;
+    document.querySelector('.app').setAttribute('aria-hidden', 'true');
+  }
+
+  function hide() {
+    el().hidden = true;
+    document.querySelector('.app').removeAttribute('aria-hidden');
+  }
+
+  /* Decides which screen the visitor sees. Called before the app boots. */
+  async function open(opts) {
+    opts = opts || {};
     if (!MT.crypto.available()) {
-      view.innerHTML = MT.ui.errorBox('Encryption unavailable',
-        'This browser does not expose WebCrypto, which encrypted sync needs. On most browsers this means the page is being served over plain http:// from a non-localhost address.');
+      show(`<h1>Encryption unavailable</h1>
+        <p class="lede">This browser does not expose WebCrypto, which the shared library needs.
+        That usually means the page is being served over plain http:// from something other than
+        localhost.</p>
+        <button class="btn" id="gWorkLocal">Work locally instead</button>`);
+      document.getElementById('gWorkLocal').onclick = workLocal;
       return;
     }
 
-    view.innerHTML = `<div class="firstrun"><h1>Checking for your library…</h1></div>`;
-    const remote = await MT.cloud.peek();
-    const localCount = await MT.repo.countItems();
+    show(`<h1>Checking for your library…</h1><div class="skel skel--line" style="width:60%"></div>`);
+    remote = await MT.cloud.peek();
 
-    if (mode === 'setup' || (!remote.exists && !MT.crypto.isUnlocked())) {
-      return setupScreen(view, remote, localCount);
-    }
-    return unlockScreen(view, remote, localCount);
+    if (opts.mode === 'setup' || !remote.exists) return setup();
+    return signIn();
   }
 
-  /* ── First time: choose a passphrase ───────────────────────────────── */
-  function setupScreen(view, remote, localCount) {
-    view.innerHTML = `
-      <div class="firstrun">
-        <h1>Set a passphrase</h1>
-        <p class="lede">
-          Your library is encrypted in this browser before it ever leaves it, then committed to
-          <span class="num">${esc(MT.cloud.repo() || 'your repository')}</span>. Enter the same passphrase on any
-          other machine and everything comes back.
-        </p>
+  /* ── Returning, or a device that has never seen this library ─────────── */
+  function signIn() {
+    const when = remote.updatedAt ? MT.util.timeAgo(Date.parse(remote.updatedAt)) : null;
+    show(`
+      <div class="gate__brand"><b>MovieTrak</b><i>Tide</i></div>
+      <h1>Sign in</h1>
+      <p class="lede">
+        Your library lives in <span class="mono">${esc(MT.cloud.repo())}</span>${
+          remote.counts ? ` — <b>${remote.counts.items}</b> titles` : ''}${
+          when ? `, last saved ${esc(when)}` : ''}.
+        Enter your passphrase to open it on this device.
+      </p>
 
-        <div class="warnbox">
-          <strong>There is no way to reset this</strong>
-          The passphrase is never stored, sent, or written down anywhere — not even as a hash. That is what
-          makes publishing the file safe, and it also means that if you forget it, the library is gone.
-          Keep a copy in your password manager.
+      ${remote.error ? MT.ui.errorBox('Could not reach the library file', remote.error) : ''}
+
+      <div class="field">
+        <label class="field__label" for="gpass">Passphrase</label>
+        <input id="gpass" type="password" autocomplete="current-password" spellcheck="false" autofocus>
+        <div class="field__state" id="gmsg"></div>
+      </div>
+
+      <label class="gate__check">
+        <input type="checkbox" id="gremember" ${MT.crypto.isRemembered() ? 'checked' : ''}>
+        Stay signed in on this device
+      </label>
+
+      <div class="actions" style="margin-top:var(--mt-space-5)">
+        <button class="btn btn--primary" id="gDo">Open library</button>
+        <button class="btn btn--ghost" id="gWorkLocal">Work offline</button>
+      </div>
+
+      <p class="gate__note">
+        Nothing is being checked against a stored password — there isn’t one. Your passphrase derives
+        the key that decrypts the file. If it decrypts, it was right.
+      </p>`);
+
+    const pass = document.getElementById('gpass');
+    const msg = document.getElementById('gmsg');
+    const btn = document.getElementById('gDo');
+
+    const attempt = async () => {
+      if (!pass.value) return;
+      btn.disabled = true;
+      btn.textContent = 'Deriving key…';       // ~0.5–1s at 600k iterations, by design
+      msg.textContent = '';
+      msg.className = 'field__state';
+      try {
+        await MT.crypto.unlock(pass.value, remote.salt);
+        btn.textContent = 'Decrypting…';
+        const counts = await MT.cloud.restore(remote.envelope);
+        if (document.getElementById('gremember').checked) await MT.crypto.rememberOnDevice();
+        hide();
+        await MT.boot.startApp();
+        MT.ui.toast(`Signed in — ${counts.items || 0} titles`);
+      } catch (e) {
+        MT.crypto.lock();
+        btn.disabled = false;
+        btn.textContent = 'Open library';
+        msg.textContent = '✕ ' + (e.message || String(e));
+        msg.className = 'field__state field__state--bad';
+        pass.select();
+      }
+    };
+    btn.onclick = attempt;
+    pass.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+    document.getElementById('gWorkLocal').onclick = workLocal;
+  }
+
+  /* ── First run on a fresh repository ─────────────────────────────────── */
+  function setup() {
+    show(`
+      <div class="gate__brand"><b>MovieTrak</b><i>Tide</i></div>
+      <h1>Set up your library</h1>
+      <p class="lede">
+        Your watchlist is encrypted in this browser and saved to
+        <span class="mono">${esc(MT.cloud.repo() || 'your repository')}</span>. Sign in with the same
+        passphrase on any device and you get the same single library.
+      </p>
+
+      <div class="warnbox">
+        <strong>There is no way to reset this</strong>
+        The passphrase is never stored, sent, or written down anywhere — not even as a hash. That is
+        what makes it safe to publish the file, and it also means that if you forget it, the library
+        is gone. Put it in your password manager now.
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="gp1">Passphrase</label>
+        <div class="field__help">Four unrelated words beat one clever word. The encrypted file is
+          publicly readable and holds your GitHub token, so length is what actually protects it.</div>
+        <input id="gp1" type="password" autocomplete="new-password" spellcheck="false"
+               placeholder="correct horse battery staple">
+        <div class="field__state" id="gstr"></div>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="gp2">Confirm</label>
+        <input id="gp2" type="password" autocomplete="new-password" spellcheck="false">
+        <div class="field__state" id="gmatch"></div>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="gtok">GitHub token</label>
+        <div class="field__help">
+          Needed so changes can be saved back. Create a
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a>
+          scoped to <b>only this repository</b>, with <b>Contents: read and write</b>, and give it an
+          expiry. It is stored inside the encrypted file, so you only enter it once — every other
+          device gets it by signing in.
         </div>
+        <input id="gtok" type="password" spellcheck="false" autocomplete="off" placeholder="github_pat_…">
+        <div class="field__state" id="gtokmsg"></div>
+      </div>
 
-        <div class="field">
-          <label class="field__label" for="pass1">Passphrase</label>
-          <div class="field__help">Four unrelated words beat one clever word. The encrypted file will be publicly
-            readable, so length is what actually protects it.</div>
-          <input id="pass1" type="password" autocomplete="new-password" spellcheck="false"
-                 placeholder="correct horse battery staple">
-          <div class="field__state" id="strength"></div>
-        </div>
+      <div class="actions" style="margin-top:var(--mt-space-5)">
+        <button class="btn btn--primary" id="gCreate">Create library</button>
+        <button class="btn btn--ghost" id="gWorkLocal">Skip — work offline</button>
+      </div>
+      <div id="gerr" style="margin-top:var(--mt-space-4)"></div>`);
 
-        <div class="field">
-          <label class="field__label" for="pass2">Confirm</label>
-          <input id="pass2" type="password" autocomplete="new-password" spellcheck="false">
-          <div class="field__state" id="match"></div>
-        </div>
-
-        <div class="field">
-          <label class="field__label">
-            <input type="checkbox" id="remember"> Stay unlocked on this device
-          </label>
-          <div class="field__help">Keeps the derived key in this browser so you are not asked every visit.
-            Leave it off on a shared machine.</div>
-        </div>
-
-        <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap;margin-top:var(--mt-space-5)">
-          <button class="btn btn--primary" id="do-setup">
-            ${localCount ? `Encrypt and publish ${localCount} titles` : 'Set passphrase'}
-          </button>
-          <a class="btn btn--ghost" href="#/">Skip — keep everything local</a>
-        </p>
-        <div id="setup-msg" style="margin-top:var(--mt-space-4)"></div>
-      </div>`;
-
-    const p1 = document.getElementById('pass1');
-    const p2 = document.getElementById('pass2');
-    const strength = document.getElementById('strength');
-    const match = document.getElementById('match');
+    const p1 = document.getElementById('gp1');
+    const p2 = document.getElementById('gp2');
+    const str = document.getElementById('gstr');
+    const match = document.getElementById('gmatch');
 
     p1.addEventListener('input', () => {
       const s = MT.crypto.strength(p1.value);
-      strength.textContent = `${s.label}${s.hint ? ' — ' + s.hint : ''}`;
-      strength.className = 'field__state ' + (s.score >= 3 ? 'field__state--ok' : s.score >= 2 ? '' : 'field__state--bad');
+      str.textContent = `${s.label}${s.hint ? ' — ' + s.hint : ''}`;
+      str.className = 'field__state ' + (s.score >= 3 ? 'field__state--ok' : s.score >= 2 ? '' : 'field__state--bad');
     });
     p2.addEventListener('input', () => {
       if (!p2.value) { match.textContent = ''; return; }
@@ -97,121 +188,77 @@ MT.viewUnlock = (function () {
       match.className = 'field__state ' + (ok ? 'field__state--ok' : 'field__state--bad');
     });
 
-    document.getElementById('do-setup').onclick = async () => {
-      const msg = document.getElementById('setup-msg');
-      if (p1.value !== p2.value) { msg.innerHTML = MT.ui.errorBox('Not saved', 'The two passphrases do not match.'); return; }
-      if (MT.crypto.strength(p1.value).score < 1) {
-        msg.innerHTML = MT.ui.errorBox('Too short', 'Use at least eight characters — ideally several words.');
+    document.getElementById('gCreate').onclick = async () => {
+      const err = document.getElementById('gerr');
+      const btn = document.getElementById('gCreate');
+      const tok = document.getElementById('gtok').value.trim();
+      err.innerHTML = '';
+
+      if (p1.value !== p2.value) { err.innerHTML = MT.ui.errorBox('Not saved', 'The two passphrases do not match.'); return; }
+      /* Stricter than the local-only version was: this passphrase protects a
+         repo-write token inside a world-readable file. */
+      if (MT.crypto.strength(p1.value).score < 3) {
+        err.innerHTML = MT.ui.errorBox('Too weak',
+          'Because the encrypted file is public and contains your GitHub token, this needs to be a real passphrase — four unrelated words, or twenty-plus characters.');
         return;
       }
-      const btn = document.getElementById('do-setup');
-      btn.disabled = true;
-      btn.textContent = 'Deriving key…';      // ~1s at 600k iterations, by design
-      msg.innerHTML = '';
 
-      try {
-        /* Reuse the existing salt when re-keying an existing library, so an
-           old file stays decryptable by the new passphrase only after a
-           successful republish. */
-        await MT.crypto.unlock(p1.value, remote.exists ? remote.salt : null);
-        if (document.getElementById('remember').checked) await MT.crypto.rememberOnDevice();
-
-        if (MT.cloud.hasToken() && MT.cloud.repo()) {
-          btn.textContent = 'Publishing…';
-          const res = await MT.cloud.publish({ message: 'MovieTrak: initial encrypted library' });
-          MT.ui.toast(`Published ${res.counts.items} titles`);
-        } else {
-          MT.ui.toast('Passphrase set — add a GitHub token in Settings to publish');
-        }
-        MT.router.go('#/');
-      } catch (e) {
-        btn.disabled = false;
-        btn.textContent = 'Set passphrase';
-        msg.innerHTML = MT.ui.errorBox('Could not publish', e.message || String(e));
-      }
-    };
-  }
-
-  /* ── Returning, or a new machine ───────────────────────────────────── */
-  function unlockScreen(view, remote, localCount) {
-    const when = remote.updatedAt ? MT.util.timeAgo(Date.parse(remote.updatedAt)) : null;
-    view.innerHTML = `
-      <div class="firstrun">
-        <h1>Unlock your library</h1>
-        <p class="lede">
-          ${remote.exists
-            ? `An encrypted library is published in <span class="num">${esc(MT.cloud.repo())}</span>${when ? `, last updated ${esc(when)}` : ''}${remote.counts ? ` — ${remote.counts.items} titles` : ''}.`
-            : 'No published library was found for this repository.'}
-        </p>
-
-        ${remote.error ? MT.ui.errorBox('Could not reach the library file', remote.error) : ''}
-
-        ${localCount && remote.exists ? `<div class="warnbox">
-          <strong>This browser already has ${localCount} titles</strong>
-          Unlocking replaces them with the published copy. Export first if this device has anything the
-          published library does not.
-        </div>` : ''}
-
-        <div class="field">
-          <label class="field__label" for="pass">Passphrase</label>
-          <input id="pass" type="password" autocomplete="current-password" spellcheck="false" autofocus>
-          <div class="field__state" id="msg"></div>
-        </div>
-
-        <div class="field">
-          <label class="field__label">
-            <input type="checkbox" id="remember" ${MT.crypto.isRemembered() ? 'checked' : ''}> Stay unlocked on this device
-          </label>
-        </div>
-
-        <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap;margin-top:var(--mt-space-5)">
-          <button class="btn btn--primary" id="do-unlock">Unlock</button>
-          <a class="btn btn--ghost" href="#/unlock?mode=setup">Set a new passphrase instead</a>
-          <a class="btn btn--ghost" href="#/">Work locally</a>
-        </p>
-
-        <p class="faint" style="font-size:var(--mt-fs-micro);margin-top:var(--mt-space-6);max-width:66ch">
-          Nothing is being checked against a stored password — there isn’t one. Your passphrase derives the
-          key that decrypts the file. If it decrypts, it was right.
-        </p>
-      </div>`;
-
-    const pass = document.getElementById('pass');
-    const msg = document.getElementById('msg');
-    const btn = document.getElementById('do-unlock');
-
-    const attempt = async () => {
-      if (!pass.value) return;
       btn.disabled = true;
       btn.textContent = 'Deriving key…';
-      msg.textContent = '';
-      msg.className = 'field__state';
       try {
-        await MT.crypto.unlock(pass.value, remote.salt);
-        if (remote.exists) {
-          btn.textContent = 'Decrypting…';
-          const counts = await MT.cloud.restore(remote.envelope);
-          if (document.getElementById('remember').checked) await MT.crypto.rememberOnDevice();
-          MT.ui.toast(`Unlocked — ${counts.items || 0} titles restored`);
-          MT.router.go('#/');
-        } else {
-          if (document.getElementById('remember').checked) await MT.crypto.rememberOnDevice();
-          MT.ui.toast('Unlocked');
-          MT.router.go('#/');
+        await MT.crypto.unlock(p1.value, remote.exists ? remote.salt : null);
+        if (tok) {
+          btn.textContent = 'Checking token…';
+          MT.cloud.setVaultToken(tok);
+          const v = await MT.cloud.verifyToken();
+          if (!v.ok) {
+            MT.cloud.setVaultToken(null);
+            btn.disabled = false; btn.textContent = 'Create library';
+            err.innerHTML = MT.ui.errorBox('Token rejected', v.reason);
+            return;
+          }
         }
+        if (MT.cloud.hasWriteToken()) {
+          btn.textContent = 'Saving…';
+          await MT.cloud.publish({ message: 'MovieTrak: create encrypted library' });
+        }
+        await MT.crypto.rememberOnDevice();
+        hide();
+        await MT.boot.startApp();
+        MT.ui.toast(tok ? 'Library created and saved' : 'Passphrase set — add a token in Settings to save changes');
       } catch (e) {
-        MT.crypto.lock();
         btn.disabled = false;
-        btn.textContent = 'Unlock';
-        msg.textContent = '✕ ' + (e.message || String(e));
-        msg.className = 'field__state field__state--bad';
-        pass.select();
+        btn.textContent = 'Create library';
+        err.innerHTML = MT.ui.errorBox('Could not create the library', e.message || String(e));
       }
     };
-
-    btn.onclick = attempt;
-    pass.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+    document.getElementById('gWorkLocal').onclick = workLocal;
   }
 
-  return { render };
+  /* An escape hatch, not a mode. Whatever is done offline stays in this
+     browser until the next successful sign-in overwrites it, and the banner
+     says so rather than letting it look like everything is fine. */
+  async function workLocal() {
+    hide();
+    await MT.boot.startApp();
+    MT.ui.banner('Working offline — changes stay in this browser only and will be replaced the next time you sign in.',
+      { actionLabel: 'Sign in', onAction: () => open() });
+  }
+
+  function signOut() {
+    MT.crypto.lock();
+    MT.cloud.setVaultToken(null);
+    location.reload();
+  }
+
+  return { open, hide, signOut, workLocal };
 })();
+
+/* The old #/unlock route now just re-opens the gate, so existing links and
+   the tree entry keep working. */
+MT.viewUnlock = {
+  render(params, query) {
+    MT.gate.open({ mode: (query && query.mode) || '' });
+    return Promise.resolve();
+  },
+};

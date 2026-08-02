@@ -53,9 +53,10 @@ MT.viewSettings = (function () {
         <section class="section">
           ${MT.ui.groupHead('Your data')}
           <div class="warnbox">
-            <strong>There is no server</strong>
-            Everything is stored in this browser. Clearing site data erases it, and Safari deletes local
-            storage for sites you have not visited in seven days. Export is the only backup.
+            <strong>The repository is the source of truth</strong>
+            Your library is encrypted in this browser and saved to the repo, so any device that signs in
+            with your passphrase gets the same single dataset. This browser keeps a working copy for
+            speed. Export is still worth doing occasionally as an offline backup.
             ${backup ? `<br><br>Last export: <b>${backup.last ? MT.util.timeAgo(backup.last) : 'never'}</b>${backup.overdue ? ' — overdue' : ''}.` : ''}
           </div>
           <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
@@ -142,8 +143,10 @@ MT.viewSettings = (function () {
   function syncBlock(sync) {
     return `
       <p class="field__help" style="margin-bottom:var(--mt-space-4);max-width:70ch">
-        Your library is encrypted in this browser and committed to your repository as
-        <span class="num">${esc(sync.path)}</span>. Enter the same passphrase on any other machine to load it.
+        Your library is encrypted in this browser and saved to your repository as
+        <span class="num">${esc(sync.path)}</span>. Sign in with the same passphrase on any device and you
+        get the same single library — including the GitHub token, which is stored inside the encrypted
+        file so you only ever enter it once.
         The passphrase is never stored anywhere — not even as a hash — so there is nothing in the repository
         that could be cracked, and no way to reset it if you forget it.
       </p>
@@ -191,9 +194,9 @@ MT.viewSettings = (function () {
 
       <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
         ${sync.unlocked
-          ? `<button class="btn btn--primary" id="sync-push">Publish now</button>
-             <button class="btn" id="sync-pull">Load published copy</button>
-             <button class="btn btn--ghost" id="sync-lock">Lock</button>`
+          ? `<button class="btn btn--primary" id="sync-push">Save now</button>
+             <button class="btn" id="sync-pull">Reload from repository</button>
+             <button class="btn btn--ghost" id="sync-lock">Sign out</button>`
           : `<a class="btn btn--primary" href="#/unlock">Unlock / enter passphrase</a>
              <a class="btn" href="#/unlock?mode=setup">Set a passphrase</a>`}
       </p>`;
@@ -263,7 +266,7 @@ MT.viewSettings = (function () {
       state.textContent = (res.ok ? '● ' : '✕ ') + res.reason;
       state.className = 'field__state ' + (res.ok ? 'field__state--ok' : 'field__state--bad');
       t.value = '';
-      MT.boot.refreshSyncChip();
+
     };
 
     const ghClear = document.getElementById('gh-clear');
@@ -304,10 +307,8 @@ MT.viewSettings = (function () {
 
     const lockBtn = document.getElementById('sync-lock');
     if (lockBtn) lockBtn.onclick = () => {
-      MT.crypto.lock();
-      MT.ui.toast('Locked — your passphrase will be needed again');
-      MT.boot.refreshSyncChip();
-      MT.router.resolve();
+      if (!MT.ui.confirmDialog('Sign out of this device? Your passphrase will be needed again.')) return;
+      MT.gate.signOut();
     };
 
     document.getElementById('export').onclick = async () => {

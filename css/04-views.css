@@ -355,3 +355,42 @@ a.src:hover { background: var(--mt-surface-hover); }
 }
 .linkout:last-child { border-bottom: 0; }
 .linkout__id { font-family: var(--mt-font-mono); font-size: var(--mt-fs-micro); color: var(--mt-text-faint); }
+
+/* ══ THE GATE ═════════════════════════════════════════════════════════════
+   Sits in front of the app. The repository holds the library, so nothing
+   renders until it has been signed into. */
+.gate {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center;
+  padding: var(--mt-space-6);
+  background-color: var(--mt-surface-canvas);
+  background-image: var(--mt-tank-1), var(--mt-tank-2);
+  overflow-y: auto;
+}
+.gate__panel {
+  width: min(520px, 100%);
+  background: var(--mt-surface-glass);
+  backdrop-filter: var(--mt-glass-blur); -webkit-backdrop-filter: var(--mt-glass-blur);
+  border: var(--mt-rule-w) solid var(--mt-line-rule);
+  border-top-color: var(--mt-line-highlight);
+  border-radius: var(--mt-radius-lg);
+  box-shadow: var(--mt-shadow-drawer);
+  padding: var(--mt-space-7);
+}
+@supports not (backdrop-filter: blur(2px)) { .gate__panel { background: var(--mt-surface-rail); } }
+.gate__brand { display: flex; align-items: baseline; gap: var(--mt-space-2); margin-bottom: var(--mt-space-5); }
+.gate__brand b { font-family: var(--mt-font-serif); font-size: 15px; color: var(--mt-text-primary); }
+.gate__brand i {
+  font-style: normal; font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--mt-teal-text); border: var(--mt-rule-w) solid var(--mt-teal-edge);
+  border-radius: var(--mt-radius-sm); padding: 1px 4px;
+}
+.gate h1 { font-family: var(--mt-font-serif); font-size: 27px; line-height: 1.15; margin-bottom: var(--mt-space-3); }
+.gate .lede { font-size: var(--mt-fs-base); color: var(--mt-text-secondary); line-height: 1.6; margin-bottom: var(--mt-space-5); }
+.gate .lede b { color: var(--mt-text-primary); }
+.gate__check { display: flex; align-items: center; gap: var(--mt-space-2); font-size: var(--mt-fs-sm); color: var(--mt-text-secondary); }
+.gate__note {
+  font-size: var(--mt-fs-micro); color: var(--mt-text-faint); line-height: 1.5;
+  margin-top: var(--mt-space-6); padding-top: var(--mt-space-4);
+  border-top: var(--mt-rule-w) solid var(--mt-line-hairline);
+}

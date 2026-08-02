@@ -133,10 +133,10 @@ MT.viewLibrary = (function () {
         `}
 
         <div class="warnbox" style="margin-top:var(--mt-space-7)">
-          <strong>Everything is stored in this browser</strong>
-          No account, no server. That makes it fast and private — and it also means clearing site data,
-          or Safari’s seven-day idle cleanup, will erase it. Export from Settings, or set a passphrase
-          to sync an encrypted copy through your repository.
+          <strong>Your library lives in the repository, not in this browser</strong>
+          It is encrypted here before it is saved, so anyone can read the file and nobody can read your
+          list. Sign in with the same passphrase on any device and you get the same single library.
+          This browser keeps a working copy for speed, which is what makes it usable offline.
         </div>
       </div>`;
   }

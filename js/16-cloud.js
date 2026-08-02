@@ -80,7 +80,7 @@ MT.cloud = (function () {
 
   function ghHeaders() {
     return {
-      'Authorization': `Bearer ${token()}`,
+      'Authorization': `Bearer ${tokenForWrite()}`,
       'Accept': 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'Content-Type': 'application/json',
@@ -117,7 +117,7 @@ MT.cloud = (function () {
 
   async function push(envelope, opts) {
     opts = opts || {};
-    if (!hasToken()) throw new Error('Add a GitHub token in Settings to publish your library.');
+    if (!hasWriteToken()) throw new Error('No GitHub token available. Add one in Settings so changes can be saved back.');
     const r = repo();
     if (!r) throw new Error('No repository configured.');
 
@@ -165,23 +165,78 @@ MT.cloud = (function () {
 
   /* ── High-level operations ─────────────────────────────────────────── */
 
+  /* ── The vault ─────────────────────────────────────────────────────────
+     The GitHub token lives INSIDE the encrypted payload rather than in each
+     browser's localStorage. That is what makes "sign in anywhere with just a
+     passcode" true: reading the file needs nothing, decrypting it needs the
+     passcode, and decrypting it also hands you the token needed to write back.
+
+     The trade is real and worth being clear about: the token's safety now
+     rests entirely on passphrase strength against an offline attack on a file
+     anyone can download. Hence the strength requirement at setup, a narrowly
+     scoped token, and an expiry date. */
+  let vaultToken = null;
+  function tokenForWrite() { return vaultToken || token(); }
+  function setVaultToken(t) { vaultToken = (t || '').trim() || null; }
+  const hasWriteToken = () => !!tokenForWrite();
+
   async function publish(opts) {
+    opts = opts || {};
     if (!MT.crypto.isUnlocked()) throw new Error('Locked — enter your passphrase first.');
+
+    /* One shared dataset means two devices can genuinely collide. Rather than
+       silently overwriting, check whether the file moved under us and let the
+       caller decide. */
+    if (!opts.force) {
+      const c = await checkConflict();
+      if (c.conflict) {
+        const err = new Error('Another device saved changes since this one loaded the library.');
+        err.kind = 'conflict';
+        err.envelope = c.envelope;
+        throw err;
+      }
+    }
     const doc = await MT.repo.exportAll();
+    doc.vault = { githubToken: tokenForWrite() || null };
     const envelope = await MT.crypto.encryptJson(doc);
     const res = await push(envelope, opts);
     await MT.repo.metaSet('cloud.lastSyncedCounts', doc.counts);
+    await MT.repo.metaSet('cloud.lastPushAt', Date.now());
     return { counts: doc.counts, commit: res.commit && res.commit.sha };
   }
 
-  /* Replace-only, like file import. Merging two divergent libraries is a real
-     distributed-systems problem and guessing at it silently would be worse
-     than making the user choose. */
+  /* Replace-only. Merging two divergent libraries is a genuine
+     distributed-systems problem, and guessing at it silently would be worse
+     than making the choice explicit — see checkConflict below. */
   async function restore(envelope) {
     const doc = await MT.crypto.decryptJson(envelope);
+    if (doc.vault && doc.vault.githubToken) setVaultToken(doc.vault.githubToken);
     const counts = await MT.repo.importAll(doc);
     await MT.repo.metaSet('cloud.lastPullAt', Date.now());
+    await MT.repo.metaSet('cloud.knownRemoteAt', envelope.updatedAt || null);
     return counts;
+  }
+
+  /* Before overwriting the shared file, check nobody else has written since we
+     last read it. updatedAt sits outside the ciphertext precisely so this can
+     be answered without the passphrase. */
+  async function checkConflict() {
+    try {
+      const env = await pullEnvelope();
+      if (!env) return { conflict: false };
+      const known = await MT.repo.metaGet('cloud.knownRemoteAt');
+      if (!known || !env.updatedAt || env.updatedAt === known) return { conflict: false, envelope: env };
+      return { conflict: true, envelope: env, theirs: env.updatedAt, ours: known };
+    } catch (_) { return { conflict: false }; }
+  }
+
+  /* Pull the shared library and adopt it. This is the normal path on every
+     load, because the repo — not this browser — is the source of truth. */
+  async function syncDown() {
+    const env = await pullEnvelope();
+    if (!env) return { exists: false };
+    const counts = await restore(env);
+    return { exists: true, counts };
   }
 
   /* Metadata readable WITHOUT the passphrase — updatedAt and counts live
@@ -207,7 +262,8 @@ MT.cloud = (function () {
     return {
       repo: repo(),
       path: path(),
-      hasToken: hasToken(),
+      hasToken: hasWriteToken(),
+      tokenFromVault: !!vaultToken,
       unlocked: MT.crypto.isUnlocked(),
       lastPushAt: await MT.repo.metaGet('cloud.lastPushAt'),
       lastPullAt: await MT.repo.metaGet('cloud.lastPullAt'),
@@ -215,7 +271,7 @@ MT.cloud = (function () {
   }
 
   async function verifyToken() {
-    if (!hasToken()) return { ok: false, reason: 'No token set.' };
+    if (!hasWriteToken()) return { ok: false, reason: 'No token set.' };
     const r = repo();
     if (!r) return { ok: false, reason: 'No repository set.' };
     try {
@@ -240,6 +296,7 @@ MT.cloud = (function () {
 
   return {
     repo, setRepo, token, setToken, hasToken, clearToken, path, configured,
-    pullEnvelope, push, publish, restore, peek, status, verifyToken,
+    tokenForWrite, setVaultToken, hasWriteToken,
+    pullEnvelope, push, publish, restore, syncDown, checkConflict, peek, status, verifyToken,
   };
 })();

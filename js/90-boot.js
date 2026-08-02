@@ -67,7 +67,7 @@ MT.boot = (function () {
   async function backupNag() {
     const b = await MT.sync.backupCheck();
     if (!b || !b.overdue) return;
-    if (MT.cloud.configured() && MT.crypto.isUnlocked() && MT.cloud.hasToken()) return;  // sync covers it
+    if (MT.cloud.configured() && MT.crypto.isUnlocked() && MT.cloud.hasWriteToken()) return;  // sync covers it
     MT.ui.banner(`It has been ${b.days} days since your last export. Local storage can be cleared without warning.`, {
       actionLabel: 'Export now',
       onAction: async () => { await MT.sync.exportToFile(); MT.ui.toast('Exported'); refreshFooter(); },
@@ -105,12 +105,25 @@ MT.boot = (function () {
      limit here is the secondary one — 80 content-generating requests a minute
      — which a per-keystroke push would hit while typing notes. */
   function schedulePush() {
-    if (!MT.crypto.isUnlocked() || !MT.cloud.hasToken() || !MT.cloud.configured()) return;
+    if (!MT.crypto.isUnlocked() || !MT.cloud.hasWriteToken() || !MT.cloud.configured()) return;
     pendingPush = true;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(async () => {
       try { await MT.cloud.publish(); refreshFooter(); }
-      catch (e) { MT.ui.toast('Could not publish to GitHub: ' + (e.message || ''), { bad: true }); }
+      catch (e) {
+        if (e && e.kind === 'conflict') {
+          /* Two devices, one dataset. Never silently pick a winner. */
+          MT.ui.banner('Another device saved changes since this one loaded the library. Saving is paused so nothing is lost.', {
+            actionLabel: 'Load theirs (discards local changes)',
+            onAction: async () => {
+              try { await MT.cloud.restore(e.envelope); location.reload(); }
+              catch (err) { MT.ui.toast(err.message || 'Could not load', { bad: true }); }
+            },
+          });
+        } else {
+          MT.ui.toast('Could not save to GitHub: ' + (e.message || ''), { bad: true });
+        }
+      }
       finally { pendingPush = false; }
     }, 20000);
   }
@@ -123,17 +136,11 @@ MT.boot = (function () {
     });
   }
 
-  async function offerRestore() {
-    if (!MT.crypto.available() || !MT.cloud.configured()) return;
-    if (MT.crypto.isUnlocked() || location.hash.startsWith('#/unlock')) return;
-    if ((await MT.repo.countItems()) > 0) return;
-    const remote = await MT.cloud.peek();
-    if (!remote.exists) return;
-    MT.ui.banner(
-      `A published library is available here${remote.counts ? ` (${remote.counts.items} titles)` : ''}. Enter your passphrase to load it.`,
-      { actionLabel: 'Unlock', onAction: () => MT.router.go('#/unlock') });
-  }
-
+  /* ── Boot in two stages ────────────────────────────────────────────────
+     The repository holds the library, so the gate runs first and the app only
+     starts once we have a decrypted dataset (or the visitor has explicitly
+     chosen to work offline). Splitting it this way means no view ever renders
+     against a half-populated store. */
   async function start() {
     window.addEventListener('error', e => console.error('[uncaught]', e.error || e.message));
     window.addEventListener('unhandledrejection', e => {
@@ -143,8 +150,6 @@ MT.boot = (function () {
     });
 
     MT.theme.init();
-    routes();
-
     await MT.db.open();
     await probeStorage();
 
@@ -152,10 +157,32 @@ MT.boot = (function () {
        compliance requirement, not housekeeping. */
     MT.repo.cachePurge().then(n => n && console.info(`[boot] purged ${n} expired cache rows`));
 
+    /* A device that chose "stay signed in" holds the derived key, so it can go
+       straight to the current library without asking again. */
+    let resumed = false;
     if (MT.crypto.available() && MT.crypto.isRemembered()) {
-      try { await MT.crypto.restoreFromDevice(); } catch (_) {}
+      try {
+        await MT.crypto.restoreFromDevice();
+        const r = await MT.cloud.syncDown();
+        resumed = r.exists;
+      } catch (e) {
+        console.warn('[boot] could not resume session', e);
+        MT.crypto.lock();
+      }
     }
 
+    if (resumed) { await startApp(); return; }
+    if (!MT.cloud.configured()) { await startApp(); return; }   // no repo: local only
+    await MT.gate.open();
+  }
+
+  /* Everything from here needs a populated store. */
+  let appStarted = false;
+  async function startApp() {
+    if (appStarted) return;
+    appStarted = true;
+
+    routes();
     MT.tree.init();
     MT.inspector.init();
     await MT.tree.refresh();
@@ -170,14 +197,13 @@ MT.boot = (function () {
     backupNag();
     scheduleSweeps();
     flushOnExit();
-    offerRestore();
 
     console.info('%cMovieTrak', 'color:#23E3C5;font-weight:600',
-      `theme=${MT.theme.current()} storage=${MT.db.mode} origin=${location.protocol}//${location.host || '(file)'}`);
+      `theme=${MT.theme.current()} storage=${MT.db.mode} signedIn=${MT.crypto.isUnlocked()} origin=${location.protocol}//${location.host || '(file)'}`);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 
-  return { refreshFooter, schedulePush, start };
+  return { refreshFooter, schedulePush, start, startApp };
 })();

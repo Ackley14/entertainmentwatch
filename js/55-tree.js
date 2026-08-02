@@ -79,7 +79,7 @@ MT.tree = (function () {
         })) } : null,
       { id: 'system', label: 'System', children: [
         { id: 'settings', label: 'Settings', route: '#/settings' },
-        { id: 'unlock', label: MT.crypto.isUnlocked() ? 'Sync · unlocked' : 'Sync · locked', route: '#/unlock' },
+        { id: 'unlock', label: MT.crypto.isUnlocked() ? 'Signed in' : 'Sign in', route: '#/unlock' },
       ] },
     ].filter(Boolean);
   }
