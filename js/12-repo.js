@@ -263,9 +263,22 @@ MT.repo = (function () {
         cacheClass: cacheClass || 'reduced',
         fetchedAt: now,
         expiresAt: now + ttl,
-        /* Hard ceiling is a compliance rule, not a tuning knob: TMDB's terms
-           forbid retaining their data beyond six months. */
-        hardExpiresAt: now + Math.min(MT.TTL.HARD_TTL, Math.max(ttl * 4, MT.TTL.HARD_TTL)),
+        /* Two expiries, doing different jobs.
+
+           `expiresAt` is when we should go and ask again. `hardExpiresAt` is
+           when the row is deleted outright — a compliance rule rather than a
+           tuning knob, since TMDB's terms forbid retaining their data beyond
+           six months.
+
+           Everything between the two is the OUTAGE BUFFER: 05-net serves a
+           soft-expired row when the upstream cannot be reached, which is what
+           keeps games and releases visible while RAWG is down. Shortening this
+           to a multiple of `ttl` would quietly delete that safety net — a
+           10-minute search TTL would leave nothing to fall back on after 40
+           minutes. (The expression here used to be
+           `min(HARD, max(ttl*4, HARD))`, which always collapses to HARD; this
+           is the same behaviour, stated on purpose.) */
+        hardExpiresAt: now + MT.TTL.HARD_TTL,
       });
     } catch (e) { console.warn('[repo] cache write failed', e); }
   }

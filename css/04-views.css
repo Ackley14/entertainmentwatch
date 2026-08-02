@@ -520,3 +520,15 @@ tbody td[data-col="title"] { position: relative; }
   width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--mt-surface-canvas);
   background: var(--mt-teal); cursor: pointer;
 }
+
+/* Served from cache because the upstream would not answer. Stated plainly:
+   a silently stale list is worse than a visibly stale one. */
+.relstale {
+  margin: var(--mt-space-5) var(--mt-space-6) 0;
+  padding: var(--mt-space-4) var(--mt-space-5);
+  border: var(--mt-rule-w) solid var(--mt-amber-edge);
+  background: var(--mt-amber-wash);
+  color: var(--mt-amber-text);
+  border-radius: var(--mt-radius);
+  font-size: var(--mt-fs-mini); line-height: 1.5;
+}

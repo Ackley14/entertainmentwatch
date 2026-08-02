@@ -166,7 +166,7 @@ MT.net = (function () {
       return new NetError('opaque',
         !hasKey ? 'No RAWG key is set, so game data is unavailable.'
         : spent ? 'This browser has hit its RAWG request budget for the month.'
-        : 'Could not reach RAWG. That usually means the key is missing, wrong, or out of monthly quota — the browser cannot tell us which, because RAWG sends errors without CORS headers.',
+        : 'Could not reach RAWG. It may be down — it goes down fairly often — or the key may be wrong or out of monthly quota. The browser genuinely cannot tell which, because RAWG sends its errors without CORS headers.',
         { source, actionable: true });
     }
     return new NetError('opaque', `Could not reach ${source}.`, { source });
@@ -205,21 +205,37 @@ MT.net = (function () {
     const ck = cacheKeyFor(url);
     const ttl = opts.ttl != null ? opts.ttl : MT.TTL.details;
 
+    /* Callers that care whether the answer is current pass `opts.meta` and
+       read it afterwards. Returning the payload alone made a six-hour-old
+       cached list indistinguishable from a live one, which is precisely the
+       thing a user needs to be told during an upstream outage. */
+    const meta = opts.meta || {};
+    meta.stale = false;
+    meta.fromCache = false;
+
     /* 1. Cache first. */
     if (!opts.noCache) {
       const hit = await MT.repo.cacheGet(ck);
-      if (hit && !hit.stale) return hit.payload;
+      if (hit && !hit.stale) {
+        meta.fromCache = true;
+        meta.fetchedAt = hit.fetchedAt;
+        return hit.payload;
+      }
       if (hit && opts.staleOk !== false) opts._stale = hit;   // keep as a fallback
     }
-    if (opts.cacheOnly) return opts._stale ? opts._stale.payload : null;
+    if (opts.cacheOnly) {
+      if (!opts._stale) return null;
+      meta.stale = true; meta.fromCache = true; meta.fetchedAt = opts._stale.fetchedAt;
+      return opts._stale.payload;
+    }
 
     /* 2. Circuit + budget gates, both of which must refund cleanly. */
     if (circuitOpen(source)) {
-      if (opts._stale) return opts._stale.payload;
+      if (opts._stale) return serveStale(meta, opts._stale, `${source} is temporarily unavailable`);
       throw new NetError('server', `${source} is temporarily unavailable.`, { source });
     }
     if (!(await budgetTake(source))) {
-      if (opts._stale) return opts._stale.payload;
+      if (opts._stale) return serveStale(meta, opts._stale, `${source} request budget spent`);
       const st = await budgetState(source);
       throw new NetError('budget',
         `This browser has used its ${source.toUpperCase()} request budget for the ${st ? st.period : 'day'}.`,
@@ -265,6 +281,7 @@ MT.net = (function () {
           if (!opts.noCache && ttl > 0) {
             MT.repo.cachePut(ck, source, payload, ttl, opts.cacheClass || 'reduced');
           }
+          meta.fetchedAt = Date.now();
           return payload;
         }
 
@@ -280,7 +297,7 @@ MT.net = (function () {
       }
       if (opts._stale) {
         console.warn(`[net] serving stale ${source} for ${ck}:`, lastErr && lastErr.message);
-        return opts._stale.payload;
+        return serveStale(meta, opts._stale, lastErr && lastErr.message, lastErr);
       }
       throw lastErr || new NetError('server', `${source}: request failed`);
     } finally {
@@ -290,6 +307,17 @@ MT.net = (function () {
                                                   the limiter stops existing. */
       void spent;
     }
+  }
+
+  /* Falling back to cache is not a failure, but it is not success either — the
+     caller has to be able to say so. */
+  function serveStale(meta, hit, reason, err) {
+    meta.stale = true;
+    meta.fromCache = true;
+    meta.fetchedAt = hit.fetchedAt;
+    meta.reason = reason || 'upstream unavailable';
+    meta.errorKind = err && err.kind;
+    return hit.payload;
   }
 
   /* Full-jitter exponential backoff; an explicit Retry-After always wins. */

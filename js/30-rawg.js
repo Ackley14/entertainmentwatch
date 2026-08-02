@@ -146,7 +146,7 @@ MT.rawg = (function () {
       ordering: '-added',
       page_size: size,
       page: opts.page || 1,
-    }), { ttl: MT.TTL.search, signal: opts.signal });
+    }), { ttl: MT.TTL.search, signal: opts.signal, meta: opts.meta });
     const results = data.results || [];
     return {
       results,

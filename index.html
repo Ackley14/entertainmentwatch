@@ -3,6 +3,20 @@
 <title>MovieTrak</title>
 <meta name="description" content="A local-first watchlist for films, television, games and anime.">
 
+<!-- Relative paths, because this has to resolve identically from file:// and
+     from a project page served under /entertainmentwatch/. A leading slash
+     would break the second one.
+     The SVG wins wherever it is supported and stays crisp on a retina tab;
+     the .ico is the fallback and also stops browsers hitting /favicon.ico and
+     logging a 404 on every load. -->
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-180.png">
+
+<!-- Tints the browser chrome to match whichever ground the app is painting. -->
+<meta name="theme-color" content="#F8F9F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#071619" media="(prefers-color-scheme: dark)">
+
 <!-- Theme is resolved BEFORE the stylesheets paint. Doing this in a deferred
      script would flash the wrong ground colour on every load. -->
 <script>

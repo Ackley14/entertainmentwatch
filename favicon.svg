@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MovieTrak">
+  <!-- The waterline: three bars, filled by how precisely a date is known.
+       It is the app's central idea and already appears on every row, so it is
+       the one mark that means something rather than being decoration.
+
+       Drawn for a 16px tab first — heavy strokes, big gaps, no fine detail.
+       Colours are literals, not tokens: an SVG loaded via <link rel="icon">
+       gets no stylesheet, so :root custom properties resolve to nothing. -->
+  <rect width="64" height="64" rx="14" fill="#0B6F62"/>
+  <g fill="#F4F7F6">
+    <rect x="14" y="16" width="36" height="8" rx="2"/>
+    <rect x="14" y="30" width="26" height="8" rx="2"/>
+    <rect x="14" y="44" width="14" height="8" rx="2" opacity=".45"/>
+  </g>
+</svg>

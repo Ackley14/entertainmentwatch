@@ -110,6 +110,7 @@ MT.viewReleases = (function () {
       done: false, loading: false, capped: false,
       scale: null,        // median notability of page 1, set once
       belowNoise: 0,      // never kept at all
+      stale: null,        // { fetchedAt, reason } when served from cache
     };
   }
 
@@ -293,13 +294,20 @@ MT.viewReleases = (function () {
     foot(st);
 
     const next = st.page + 1;
+    const meta = {};
     let env;
     try {
-      env = await fetchPage(kind, win, next);
+      env = await fetchPage(kind, win, next, meta);
     } catch (e) {
       if (mine !== token) return;
       st.loading = false;
       st.error = e;
+      /* Clear the skeletons. Leaving shimmering placeholders above an error
+         message reads as "still working on it" when it is not. */
+      if (!st.rows.length) {
+        const l = document.getElementById('relList');
+        if (l) l.innerHTML = '';
+      }
       foot(st);
       return;
     }
@@ -317,6 +325,11 @@ MT.viewReleases = (function () {
     st.totalPages = env.totalPages;
     st.loading = false;
     st.error = null;
+    /* Remember the OLDEST stale answer: if any page came from cache, the list
+       as a whole is only as current as that. */
+    if (meta.stale && (!st.stale || meta.fetchedAt < st.stale.fetchedAt)) {
+      st.stale = { fetchedAt: meta.fetchedAt, reason: meta.reason };
+    }
 
     /* Results arrive in notability order, so once a page ends below the
        current floor every later page does too. This is what stops paging
@@ -339,11 +352,11 @@ MT.viewReleases = (function () {
     if (!added.length && !st.done) await loadPage(st, kind, range, win);
   }
 
-  function fetchPage(kind, win, page) {
+  function fetchPage(kind, win, page, meta) {
     const from = MT.util.skToISO(win.from);
     const to = MT.util.skToISO(win.to);
-    if (kind === 'game') return MT.rawg.releasesBetween(from, to, { limit: 20, page });
-    return MT.tmdb.releasesBetween(kind, from, to, { page });
+    if (kind === 'game') return MT.rawg.releasesBetween(from, to, { limit: 20, page, meta });
+    return MT.tmdb.releasesBetween(kind, from, to, { page, meta });
   }
 
   /* TMDB exposes `popularity`; RAWG has no equivalent for unreleased games, so
@@ -454,8 +467,16 @@ MT.viewReleases = (function () {
     if (!el) return;
 
     if (st.error) {
-      el.innerHTML = MT.ui.errorBox('Could not load more releases',
-        st.error.message || String(st.error))
+      /* An outage and a dead connection look identical from the browser when
+         the upstream sends errors without CORS headers, which RAWG does.
+         MT.net.classify already probes a known-good host to tell them apart,
+         so the least we can do is repeat which one it decided. */
+      const k = st.error.kind;
+      const title = k === 'offline' ? 'You appear to be offline'
+                  : k === 'budget' || k === 'quota-soft' ? 'Request budget spent'
+                  : k === 'auth' ? 'That API key was rejected'
+                  : 'That source is not answering';
+      el.innerHTML = MT.ui.errorBox(title, st.error.message || String(st.error))
         + '<div class="relnote"><button class="btn btn--sm" type="button" data-more="1">Try again</button></div>';
       return;
     }
@@ -481,6 +502,9 @@ MT.viewReleases = (function () {
     }
 
     const bits = [];
+    if (st.stale) {
+      bits.push(`showing a saved copy from ${MT.util.timeAgo(st.stale.fetchedAt)}`);
+    }
     bits.push(filterText
       ? `${shown} of ${st.rows.length} loaded match “${esc(filterText)}”`
       : MT.util.pluralize(shown, 'release'));
@@ -503,7 +527,11 @@ MT.viewReleases = (function () {
       action = '<div class="relnote muted">That is everything with a confirmed date in this window.</div>';
     }
 
-    el.innerHTML = `<div class="relcount muted">${bits.join(' · ')}</div>${action}`;
+    const banner = st.stale
+      ? `<div class="relstale">This list could not be refreshed, so it is the last copy saved
+           ${esc(MT.util.timeAgo(st.stale.fetchedAt))}. Newly announced titles may be missing.</div>`
+      : '';
+    el.innerHTML = `${banner}<div class="relcount muted">${bits.join(' · ')}</div>${action}`;
   }
 
   /* ── Infinite scroll ──────────────────────────────────────────────────── */

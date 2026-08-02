@@ -232,7 +232,7 @@ MT.tmdb = (function () {
     }
 
     const data = await MT.net.get('tmdb', url(tv ? '/discover/tv' : '/discover/movie', p),
-      { ttl: MT.TTL.search, signal: opts.signal });
+      { ttl: MT.TTL.search, signal: opts.signal, meta: opts.meta });
     return {
       results: (data.results || []).map(r => Object.assign({ media_type: tv ? 'tv' : 'movie' }, r)),
       page: data.page || 1,
