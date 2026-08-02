@@ -192,6 +192,23 @@ MT.boot = (function () {
     MT.inspector.init();
     await MT.tree.refresh();
 
+    /* Television written before the date split has the next episode's air date
+       sitting in `release`, and the real premiere is simply gone — nothing
+       stored can recover it, so those records have to be fetched again.
+
+       Rather than a migration that spends one request per series on boot, they
+       are marked as due: the hydrate path already refetches anything whose
+       details are stale, so each one repairs itself the first time it is
+       looked at, and the background sweep gets the rest. Costs nothing now and
+       runs at most once per record. */
+    repairLegacyTv().catch(e => console.warn('[boot] tv repair skipped', e));
+    MT.repo.subscribe(ev => {
+      /* And again whenever a library appears from somewhere else. */
+      if (ev === 'import:done' || ev === 'sync:merged') {
+        repairLegacyTv().catch(() => {});
+      }
+    });
+
     MT.repo.subscribe((ev, detail) => {
       if (ev === 'item:put' || ev === 'item:delete' || ev === 'follow:change' ||
           ev === 'feed:change') schedulePush();
@@ -225,6 +242,27 @@ MT.boot = (function () {
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
+
+  /* No one-shot flag. The library can arrive AFTER boot — a cloud restore
+     lands during sign-in — so a run guarded by a "done" marker would sweep an
+     empty store, set the marker, and never look again. The scan is a cheap
+     in-memory pass with no I/O unless something actually needs marking, and
+     marking is idempotent: once a record has been refreshed it carries
+     `tvExtra.next` and is skipped forever after. */
+  async function repairLegacyTv() {
+    const items = await MT.repo.allItems();
+    let n = 0;
+    for (const it of items) {
+      if (it.kind !== 'tv' || !it.tvExtra) continue;
+      if (it.tvExtra.next) continue;                 // already on the new shape
+      it.meta.detailsFetchedAt = 0;                  // due for a refresh
+      MT.sync.retier(it);
+      await MT.repo.putItemQuiet(it);
+      n++;
+    }
+    if (n) console.info(`[boot] ${n} series marked for a date refresh`);
+    return n;
+  }
 
   return { refreshFooter, schedulePush, start, startApp };
 })();

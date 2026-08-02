@@ -39,10 +39,12 @@ MT.viewLibrary = (function () {
        watchable tonight, and it is not something you can plan around either.
        It has its own filter already. */
     if (q.avail === 'out') {
-      rows = rows.filter(i => i.release.sortKey <= MT.util.todaySortKey());
+      /* A series counts as out once ANY of it has aired, not once the next
+         episode lands — a show running weekly is watchable tonight. */
+      rows = rows.filter(i => MT.ui.hasAired(i));
     } else if (q.avail === 'soon') {
-      const today = MT.util.todaySortKey();
-      rows = rows.filter(i => i.release.sortKey > today && i.release.sortKey < MT.util.SK_UNKNOWN);
+      rows = rows.filter(i => !MT.ui.hasAired(i)
+        && MT.ui.firstAiredKey(i) < MT.util.SK_UNKNOWN);
     }
 
     const sort = q.sort || 'added';

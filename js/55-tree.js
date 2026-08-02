@@ -55,8 +55,10 @@ MT.tree = (function () {
       if (it.release.sortKey >= MT.util.SK_UNKNOWN) undated++;
       else if (it.release.sortKey >= today) upcoming++;
 
-      if (it.release.sortKey < MT.util.SK_UNKNOWN) {
-        if (it.release.sortKey <= today) {
+      /* Same reading as the filter, or the counts contradict the list. */
+      const aired = MT.ui.firstAiredKey(it);
+      if (aired < MT.util.SK_UNKNOWN) {
+        if (aired <= today) {
           if (it.user.status !== 'watched') outNow++;
         } else stillToCome++;
       }

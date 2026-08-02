@@ -188,6 +188,32 @@ MT.ui = (function () {
     return item.release;
   }
 
+  /* Has this actually come out yet?
+
+     Not the same question as `release.sortKey <= today`, for a reason that
+     outlives the bug that caused it. Records written before television got two
+     dates carry the NEXT EPISODE's date in `release`, because the old
+     normalizer overwrote the premiere with it. For a running show that date is
+     in the future, so Silo — airing weekly, obviously watchable — filed itself
+     under "Still to come".
+
+     `tvExtra.lastAirDate` was never touched by that bug and is proof the show
+     has aired. Taking the earlier of the two is right in both worlds: for a
+     correct record the premiere is already the earlier one, and for a damaged
+     one the last-aired date rescues it. The records repair themselves on the
+     next detail fetch; this makes the filters correct in the meantime and
+     stays correct afterwards. */
+  function firstAiredKey(item) {
+    const rel = (item && item.release) || {};
+    if (!item || item.kind !== 'tv') return rel.sortKey;
+    const last = item.tvExtra && item.tvExtra.lastAirDate;
+    const lastKey = last && MT.util.isoToSortKey ? MT.util.isoToSortKey(last) : null;
+    if (lastKey && lastKey < rel.sortKey) return lastKey;
+    return rel.sortKey;
+  }
+
+  const hasAired = item => firstAiredKey(item) <= MT.util.todaySortKey();
+
   /* A compact reading for a table row: the date when there is one, the state
      word when there is not. */
   function nextAirLabel(item) {
@@ -518,7 +544,7 @@ MT.ui = (function () {
   return {
     esc, dateField, waterline, precisionTag, dateCell, whenText, driftBadge,
     poster, posterUrl, chipart, hues, kindOf, kindTag, statusCell, shortWhen,
-    nextAir, upcomingRelease, nextAirLabel, NEXT_WORD,
+    nextAir, upcomingRelease, nextAirLabel, NEXT_WORD, firstAiredKey, hasAired,
     progressText, progressBar, progressFraction, progressOf, setProgress,
     table, tableRow, grid, COLUMNS,
     emptyState, errorBox, skeletonGrid, groupHead, toast, banner, crumb, paneActions,
