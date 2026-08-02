@@ -14,6 +14,14 @@ MT.inspector = (function () {
   const esc = MT.util.escapeHtml;
   let currentUid = null;
 
+  /* What is currently painted, so an identical repaint can be skipped.
+     `show()` paints once immediately and again when hydrate resolves; most of
+     the time the second render is byte-identical, and writing it anyway tore
+     down and rebuilt the one backdrop-filtered element in the app. */
+  let lastUid = null;
+  let lastBody = '';
+  const invalidate = () => { lastBody = ''; };
+
   const el = () => document.getElementById('inspector');
 
   async function show(uid, opts) {
@@ -74,6 +82,8 @@ MT.inspector = (function () {
         })}
       </div>`);
     currentUid = null;
+    lastUid = null;
+    invalidate();
   }
 
   function paint(item) {
@@ -167,7 +177,29 @@ MT.inspector = (function () {
       </div>`}
     `;
 
-    host.innerHTML = shell(body, item);
+    /* Replace only the sheet's contents, never the sheet itself. `.sheet`
+       carries backdrop-filter and `.wash` is the colour behind it; recreating
+       a backdrop-filtered element forces the compositor to rebuild the blurred
+       layer, which is exactly the stutter you feel when the pane opens or when
+       a rating tick repaints it. */
+    const sheet = host.querySelector('.sheet');
+    if (sheet && lastUid === item.uid) {
+      if (body === lastBody) return;      // nothing actually changed
+      sheet.innerHTML = body;
+    } else {
+      host.innerHTML = shell(body, item);
+    }
+
+    /* Hues move as custom properties on the surviving element. */
+    const wash = host.querySelector('.wash');
+    if (wash) {
+      const [a, b] = MT.ui.hues(item.title);
+      wash.style.setProperty('--a', a);
+      wash.style.setProperty('--b', b);
+    }
+
+    lastUid = item.uid;
+    lastBody = body;
     wire(item);
     loadMoreLikeThis(item);
   }
@@ -298,7 +330,15 @@ MT.inspector = (function () {
       const act = e.target.closest('[data-act]');
       const goto = e.target.closest('[data-goto]');
 
-      if (st) { await MT.ui.setStatus(item.uid, st.dataset.status); show(item.uid); MT.router.resolve(); }
+      if (st) {
+        await MT.ui.setStatus(item.uid, st.dataset.status);
+        /* In place: a segmented control does not need the whole pane rebuilt. */
+        for (const b of host.querySelectorAll('[data-status]')) {
+          b.setAttribute('aria-pressed', String(b.dataset.status === st.dataset.status));
+        }
+        invalidate();
+        MT.router.resolve();
+      }
       if (rate) {
         const n = +rate.dataset.rate;
         const cur = await MT.repo.getItem(item.uid);
@@ -306,7 +346,15 @@ MT.inspector = (function () {
         if (cur.user.rating === n) delete cur.user.rating; else cur.user.rating = n;
         await MT.repo.putItem(cur);
         MT.repo.addHistory(item.uid, 'rated', cur.user.rating || null);
-        show(item.uid);
+        /* Ten ticks, each previously triggering a full rebuild of the blurred
+           sheet — dragging across the control was the worst jitter in the app. */
+        const v = cur.user.rating;
+        for (const i of host.querySelectorAll('[data-rate]')) {
+          i.classList.toggle('on', v != null && +i.dataset.rate <= v);
+        }
+        const score = host.querySelector('.myscore');
+        if (score) score.innerHTML = v != null ? `${v}<s>/10</s>` : '<s>unrated</s>';
+        invalidate();
       }
       if (act && act.dataset.act === 'add') {
         delete item._transient;

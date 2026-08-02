@@ -70,10 +70,11 @@ MT.viewAlerts = (function () {
     const ra = document.getElementById('readAll');
     if (ra) ra.onclick = async () => { await MT.repo.markAllFeedRead(); MT.router.resolve(); };
 
-    view.addEventListener('click', e => {
+    view.onclick = e => {
+      if (e.target.closest('button, a, input, select, textarea, label')) return;
       const r = e.target.closest('[data-uid]');
       if (r && r.dataset.uid) MT.inspector.show(r.dataset.uid);
-    });
+    };
 
     if (unread) {
       setTimeout(async () => {

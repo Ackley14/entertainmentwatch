@@ -63,10 +63,11 @@ MT.viewUp = (function () {
         </p>
         ${undated.map(it => row(it, span)).join('')}` : ''}`;
 
-    view.addEventListener('click', e => {
+    view.onclick = e => {
+      if (e.target.closest('button, a, input, select, textarea, label')) return;
       const r = e.target.closest('[data-uid]');
       if (r) MT.inspector.show(r.dataset.uid);
-    });
+    };
     const pa = document.getElementById('paneActions');
     if (pa) pa.addEventListener('click', e => {
       const b = e.target.closest('[data-tab]');

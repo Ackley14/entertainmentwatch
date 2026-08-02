@@ -67,10 +67,10 @@ MT.viewPeople = (function () {
       MT.router.resolve();
     });
 
-    view.addEventListener('click', async e => {
+    view.onclick = async e => {
       const un = e.target.closest('[data-unfollow]');
       if (un) { await MT.repo.deleteFollow(un.dataset.unfollow); MT.ui.toast('Unfollowed'); MT.router.resolve(); }
-    });
+    };
 
     if (follows.length) upcoming(follows);
   }

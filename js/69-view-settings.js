@@ -221,7 +221,11 @@ MT.viewSettings = (function () {
   function wire() {
     const view = document.getElementById('view');
 
-    view.addEventListener('click', async e => {
+    /* Assignment, never addEventListener — #view survives route changes, so a
+       listener bound here accumulated one copy per render. Clicking Verify
+       after visiting Settings five times fired five verifyKey requests against
+       an allowance of 1,000 a day. */
+    view.onclick = async e => {
       const v = e.target.closest('[data-verify]');
       const c = e.target.closest('[data-clearkey]');
 
@@ -246,7 +250,7 @@ MT.viewSettings = (function () {
         state.className = 'field__state ' + (res.ok ? 'field__state--ok' : 'field__state--bad');
         if (res.ok) MT.ui.toast(`${id.toUpperCase()} key works`);
       }
-    });
+    };
 
     /* ── Sync wiring ─────────────────────────────────────────────────── */
     const repoInput = document.getElementById('gh-repo');

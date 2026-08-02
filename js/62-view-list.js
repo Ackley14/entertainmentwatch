@@ -91,10 +91,17 @@ MT.viewLibrary = (function () {
       if (b) { setMode(b.dataset.mode); MT.router.resolve(); }
     });
 
-    view.addEventListener('click', e => {
+    view.onclick = e => {
+      /* Assignment, never addEventListener. #view outlives every route change,
+         so a listener bound here stayed alive on OTHER routes: after one visit
+         to the library, a tap on a search row ran this handler too and opened
+         the inspector — including taps on the Add button, which raced its own
+         await and rendered "Add to index" for a title just added. Assignment
+         also cannot stack up, and this ran on every re-render. */
+      if (e.target.closest('button, a, input, select, textarea, label')) return;
       const row = e.target.closest('[data-uid]');
       if (row) MT.inspector.show(row.dataset.uid);
-    });
+    };
     void sort;
   }
 
