@@ -174,44 +174,70 @@ MT.tmdb = (function () {
   }
 
   /* ── Releases in a date window ─────────────────────────────────────────
-     The parameter differs by kind and getting it wrong fails silently:
-     movies filter on primary_release_date, television on first_air_date —
-     which means NEW series, the honest analogue of a film's release. Returning
-     series are already covered by Coming Up for anything you track.
+     Measured against the live API, an unfiltered week returns 319 films. Most
+     are festival entries, regional releases and titles with no distribution at
+     all. Three levers cut that down, and each is chosen rather than guessed:
 
-     A vote_count floor would be wrong here — an unreleased film has no votes
-     at all, so the floor is explicitly 0.
+     · with_original_language=en          319 -> 158
+     · region=US + with_release_type      158 ->  57   (an actual US release)
+     · a notability floor, applied by the caller relative to the window's own
+       median, because popularity is TIME-RELATIVE and no fixed number works:
+       this week's top film scores 15.3, next month's 46.8, and a year out the
+       entire top five sits between 1.6 and 2.0 — and that five is Turtles,
+       Bluey and Narnia, i.e. exactly what you want to see.
 
-     Sort order is the caller's, and it is not cosmetic once paging exists.
-     Popularity puts the notable titles first but scatters dates, so page 2
-     holds less popular films with EARLIER dates — re-sorting an accumulating
-     list by date would then reshuffle everything already on screen every time
-     a page arrived. Date-ascending pages arrive in order and append cleanly,
-     which is what a release calendar wants. */
+     Release types 3|2|4 are theatrical, limited and digital. Digital is
+     included deliberately: plenty of real releases now skip cinemas, and
+     leaving it out hides them.
+
+     THE TRAP: with `region` set, TMDB filters on the REGIONAL release date but
+     still returns `release_date` as the PRIMARY one. A re-release therefore
+     comes back looking like a 1971 film releasing next Friday (Willy Wonka
+     does exactly this). The caller must verify each date against the window.
+
+     Always sorted popularity.desc. That is what makes paging terminate: once
+     results fall below the floor, everything after them does too, so the
+     caller can stop. Chronological display is a client-side re-sort of a set
+     that is small and bounded precisely because of that floor. */
   async function releasesBetween(kind, fromISO, toISO, opts) {
     requireKey();
     opts = opts || {};
     const tv = kind === 'tv' || kind === 'anime';
-    const dateField = tv ? 'first_air_date' : 'primary_release_date';
     const p = {
       'vote_count.gte': 0,
-      sort_by: opts.sort === 'popular' ? 'popularity.desc' : `${dateField}.asc`,
+      sort_by: 'popularity.desc',
       include_adult: MT.config.get('includeAdult') ? 'true' : 'false',
       page: opts.page || 1,
-      [`${dateField}.gte`]: fromISO,
-      [`${dateField}.lte`]: toISO,
     };
-    /* Anime is a facet, not a kind — matched the same way 38-normalize does it,
-       so what appears here is what the library will file as anime. */
-    if (kind === 'anime') { p.with_genres = 16; p.with_origin_country = 'JP'; }
+
+    if (tv) {
+      p['first_air_date.gte'] = fromISO;
+      p['first_air_date.lte'] = toISO;
+    } else {
+      /* release_date rather than primary_release_date, because only the
+         regional field respects region + with_release_type. */
+      p['release_date.gte'] = fromISO;
+      p['release_date.lte'] = toISO;
+      p.region = MT.config.get('region') || 'US';
+      p.with_release_type = '3|2|4';
+    }
+
+    /* Anime is a facet, not a kind — matched the way 38-normalize does it. It
+       is Japanese by definition, so the English filter must not apply. */
+    if (kind === 'anime') {
+      p.with_genres = 16;
+      p.with_origin_country = 'JP';
+    } else {
+      p.with_original_language = 'en';
+    }
 
     const data = await MT.net.get('tmdb', url(tv ? '/discover/tv' : '/discover/movie', p),
       { ttl: MT.TTL.search, signal: opts.signal });
     return {
       results: (data.results || []).map(r => Object.assign({ media_type: tv ? 'tv' : 'movie' }, r)),
       page: data.page || 1,
-      /* TMDB will report a total_pages far past what it will actually serve —
-         page 501 is a hard error regardless of the count it quotes. */
+      /* TMDB reports a total_pages far past what it will serve — page 501 is a
+         hard error regardless of the count it quotes. */
       totalPages: Math.min(data.total_pages || 1, 500),
       total: data.total_results || 0,
     };

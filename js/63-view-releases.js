@@ -14,20 +14,27 @@
        user acts on, so only precision === 'day' survives. The count dropped is
        disclosed rather than silently swallowed.
 
-   2 · Sort order is load-bearing once paging exists. Popularity puts notable
-       titles first but scatters dates, so page 2 holds less popular films with
-       EARLIER dates — re-sorting an accumulating list by date would reshuffle
-       everything already on screen every time a page landed, under the user's
-       thumb. Chronological pages arrive in order and append cleanly, so Date
-       is the default and the only mode that draws day headings. Popular is
-       offered too, and simply never regroups.
+   2 · Obscurity is filtered RELATIVE to the window, never against a fixed
+       number. Measured against the live API: an unfiltered week returns 319
+       films, this week's most popular scores 15.3, next month's 46.8, and a
+       year out the entire top five sits between 1.6 and 2.0 — and that five is
+       Turtles, Bluey and Narnia. A fixed floor either floods this week or
+       empties next year. So the scale is the MEDIAN popularity of the window's
+       own first page, and the levels are multiples of it. Median rather than
+       maximum because one runaway hit (next month's 46.8 against a 10.5
+       runner-up) would otherwise drag the floor over genuinely notable films.
 
-   3 · Pages append; they never re-render what is already there. Rebuilding a
+   3 · The API is always asked for popularity order, which is what makes paging
+       terminate: once results fall below the floor, so does everything after
+       them. Chronological display is therefore a client-side re-sort of a set
+       that is small and bounded, rather than an endless one.
+
+   4 · Pages append; they never re-render what is already there. Rebuilding a
        300-row list on each page would both stutter and shift the content the
        user is reading. The only full rebuild is when the filter changes, which
        is user-initiated and expected.
 
-   4 · One request per page, one page in flight at a time, and nothing until
+   5 · One request per page, one page in flight at a time, and nothing until
        the route is opened. Boot still costs zero.
    ══════════════════════════════════════════════════════════════════════════ */
 
@@ -42,9 +49,19 @@ MT.viewReleases = (function () {
   ];
 
   const SORTS = [
+    { id: 'notable', label: 'Notable first' },
     { id: 'date',    label: 'By date' },
-    { id: 'popular', label: 'Most popular' },
   ];
+
+  /* Multiples of the window's own median popularity. `all` still carries a
+     small floor because the true tail is inert: page 10 of an unfiltered week
+     scores 0.34, which is a record with a title and nothing else. */
+  const TIERS = [
+    { id: 'major',   label: 'Major only', k: 2.5 },
+    { id: 'notable', label: 'Notable',    k: 1.0 },
+    { id: 'all',     label: 'Everything', k: 0 },
+  ];
+  const NOISE_FLOOR = 0.3;
 
   /* RAWG allows 20,000 requests a month against a view that could otherwise
      page forever. TMDB has no such limit, so only games are capped — and when
@@ -63,7 +80,7 @@ MT.viewReleases = (function () {
   let moved = false;
   let filterText = '';
 
-  function keyOf(kind, range, sort) { return `${kind}|${range}|${sort}`; }
+  function keyOf(kind, range, tier) { return `${kind}|${range}|${tier}`; }
 
   function freshState() {
     return {
@@ -71,6 +88,8 @@ MT.viewReleases = (function () {
       page: 0, totalPages: null, total: 0,
       done: false, loading: false, capped: false,
       lastHead: null,
+      scale: null,        // median popularity of page 1, set once
+      belowFloor: 0,      // dropped for obscurity, disclosed not hidden
     };
   }
 
@@ -79,7 +98,8 @@ MT.viewReleases = (function () {
     const q = query || {};
     const kind = KINDS.some(k => k.id === q.kind) ? q.kind : 'movie';
     const range = MT.util.RELEASE_RANGES.some(r => r.id === q.range) ? q.range : 'month';
-    const sort = SORTS.some(s => s.id === q.sort) ? q.sort : 'date';
+    const sort = SORTS.some(s => s.id === q.sort) ? q.sort : 'notable';
+    const tier = TIERS.some(t => t.id === q.tier) ? q.tier : 'notable';
 
     /* Leaving the route must stop the scroll watcher, or it keeps firing
        against a list that is no longer on screen. */
@@ -114,6 +134,10 @@ MT.viewReleases = (function () {
       <div class="relbar">
         <input type="search" id="relFilter" class="sfield" autocomplete="off"
                placeholder="Filter what is loaded…" aria-label="Filter loaded releases">
+        <select id="relTier" class="chip" aria-label="How obscure to go">
+          ${TIERS.map(t => `<option value="${t.id}"${t.id === tier ? ' selected' : ''}
+            >${esc(t.label)}</option>`).join('')}
+        </select>
         <span class="relwin mono faint">${esc(MT.util.skToISO(win.from))} → ${esc(MT.util.skToISO(win.to))}</span>
       </div>
       <div id="relBody">
@@ -122,26 +146,26 @@ MT.viewReleases = (function () {
         <div id="relFoot"></div>
       </div>`;
 
-    wire(view, kind, range, sort);
+    wire(view, kind, range, sort, tier);
 
-    const key = keyOf(kind, range, sort);
+    const key = keyOf(kind, range, tier);
     if (!state.has(key)) state.set(key, freshState());
     const st = state.get(key);
 
     if (st.rows.length) {
       rebuild(st, kind);          // cached: repaint everything we already have
       foot(st);
-      watch(st, kind, range, sort, win);
+      watch(st, kind, range, tier, win);
     } else {
       document.getElementById('relList').innerHTML = skeletonRows();
-      loadPage(st, kind, range, sort, win).then(() => watch(st, kind, range, sort, win));
+      loadPage(st, kind, range, tier, win).then(() => watch(st, kind, range, tier, win));
     }
   }
 
-  function wire(view, kind, range, sort) {
+  function wire(view, kind, range, sort, tier) {
     const go = patch => {
-      const n = Object.assign({ kind, range, sort }, patch);
-      MT.router.go(`#/releases?kind=${n.kind}&range=${n.range}&sort=${n.sort}`);
+      const n = Object.assign({ kind, range, sort, tier }, patch);
+      MT.router.go(`#/releases?kind=${n.kind}&range=${n.range}&sort=${n.sort}&tier=${n.tier}`);
     };
 
     /* Assignment, not addEventListener — #view outlives the route. */
@@ -155,9 +179,9 @@ MT.viewReleases = (function () {
 
       const more = e.target.closest('[data-more]');
       if (more) {
-        const st = state.get(keyOf(kind, range, sort));
+        const st = state.get(keyOf(kind, range, tier));
         if (st && !st.loading && !st.done) {
-          await loadPage(st, kind, range, sort, MT.util.releaseWindow(range));
+          await loadPage(st, kind, range, tier, MT.util.releaseWindow(range));
         }
         return;
       }
@@ -165,7 +189,7 @@ MT.viewReleases = (function () {
       const addBtn = e.target.closest('[data-add]');
       if (addBtn) {
         if (suppressTap()) return;
-        const st = state.get(keyOf(kind, range, sort));
+        const st = state.get(keyOf(kind, range, tier));
         const hit = st && st.rows.find(x => x.stub.uid === addBtn.dataset.add);
         if (!hit || hit.owned) return;
         await MT.ui.addItem(hit.stub);
@@ -181,11 +205,14 @@ MT.viewReleases = (function () {
 
     /* Filtering rebuilds only the list. The input lives outside it and is
        never touched, so the caret cannot be moved out from under a typist. */
+    const sel = document.getElementById('relTier');
+    if (sel) sel.onchange = () => go({ tier: sel.value });
+
     const f = document.getElementById('relFilter');
     if (f) {
       f.oninput = MT.util.debounce(() => {
         filterText = f.value.trim().toLowerCase();
-        const st = state.get(keyOf(kind, range, sort));
+        const st = state.get(keyOf(kind, range, tier));
         if (!st) return;
         rebuild(st, kind);
         foot(st);
@@ -213,7 +240,7 @@ MT.viewReleases = (function () {
 
   /* ── Loading ──────────────────────────────────────────────────────────── */
 
-  async function loadPage(st, kind, range, sort, win) {
+  async function loadPage(st, kind, range, tier, win) {
     if (st.loading || st.done) return;
     const mine = token;
     st.loading = true;
@@ -222,7 +249,7 @@ MT.viewReleases = (function () {
     const next = st.page + 1;
     let env;
     try {
-      env = await fetchPage(kind, win, next, sort);
+      env = await fetchPage(kind, win, next);
     } catch (e) {
       if (mine !== token) return;
       st.loading = false;
@@ -232,7 +259,21 @@ MT.viewReleases = (function () {
     }
     if (mine !== token) { st.loading = false; return; }
 
-    const added = await absorb(st, env.results, kind);
+    /* The scale is set once, from the first page, and never moves. If it
+       drifted as pages loaded, rows already on screen would start and stop
+       qualifying. */
+    if (st.scale == null) st.scale = medianNotability(env.results, kind);
+    const floor = floorFor(st, tier);
+
+    const added = await absorb(st, env.results, kind, win, floor);
+
+    /* Results arrive in notability order, so once a page ends below the floor
+       every later page does too. This is what stops paging without needing to
+       walk the whole catalogue. */
+    if (floor > 0 && env.results.length) {
+      const lastScore = notabilityOf(env.results[env.results.length - 1], kind);
+      if (lastScore < floor) st.done = true;
+    }
 
     st.page = next;
     st.total = env.total || st.total;
@@ -250,22 +291,44 @@ MT.viewReleases = (function () {
 
     /* A page can be entirely placeholders, which would leave the list looking
        finished while more exists. Pull the next one rather than stalling. */
-    if (!added.length && !st.done) await loadPage(st, kind, range, sort, win);
+    if (!added.length && !st.done) await loadPage(st, kind, range, tier, win);
   }
 
-  function fetchPage(kind, win, page, sort) {
+  function fetchPage(kind, win, page) {
     const from = MT.util.skToISO(win.from);
     const to = MT.util.skToISO(win.to);
-    if (kind === 'game') return MT.rawg.releasesBetween(from, to, { limit: 20, page, sort });
-    return MT.tmdb.releasesBetween(kind, from, to, { page, sort });
+    if (kind === 'game') return MT.rawg.releasesBetween(from, to, { limit: 20, page });
+    return MT.tmdb.releasesBetween(kind, from, to, { page });
   }
 
-  async function absorb(st, raw, kind) {
+  /* TMDB exposes `popularity`; RAWG has no equivalent for unreleased games, so
+     `added` — the number of users holding it in a library — stands in. */
+  function notabilityOf(raw, kind) {
+    const v = kind === 'game' ? raw.added : raw.popularity;
+    return typeof v === 'number' && isFinite(v) ? v : 0;
+  }
+
+  function medianNotability(raw, kind) {
+    const xs = raw.map(r => notabilityOf(r, kind)).filter(v => v > 0).sort((a, b) => a - b);
+    if (!xs.length) return 0;
+    const mid = Math.floor(xs.length / 2);
+    return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+  }
+
+  function floorFor(st, tier) {
+    const t = TIERS.find(x => x.id === tier) || TIERS[1];
+    if (!t.k) return NOISE_FLOOR;
+    return Math.max(NOISE_FLOOR, (st.scale || 0) * t.k);
+  }
+
+  async function absorb(st, raw, kind, win, floor) {
     const owned = new Map();
     for (const it of await MT.repo.allItems()) owned.set(it.uid, it.user.status);
 
     const added = [];
     for (const r of raw) {
+      if (notabilityOf(r, kind) < floor) { st.belowFloor++; continue; }
+
       let stub;
       try {
         stub = kind === 'game'
@@ -275,6 +338,14 @@ MT.viewReleases = (function () {
       if (!stub || !stub.title) continue;
       if (st.seen.has(stub.uid)) continue;        // pages can overlap
       if (!stub.release || stub.release.precision !== 'day') { st.dropped++; continue; }
+
+      /* With `region` set, TMDB filters on the REGIONAL release date but hands
+         back the PRIMARY one — so a re-release arrives looking like a 1971 film
+         opening next Friday. Whatever we are about to print under a day heading
+         has to actually fall under it. */
+      const sk = stub.release.sortKey;
+      if (sk < win.from || sk > win.to) { st.dropped++; continue; }
+
       st.seen.add(stub.uid);
       const row = { stub, owned: owned.get(stub.uid) || null };
       st.rows.push(row);
@@ -305,11 +376,15 @@ MT.viewReleases = (function () {
 
   /* Appends only. Never touches rows already on screen. */
   function append(st, rows, kind) {
-    void kind;
+    if (!rows.length) return;
+    /* Date mode has to re-sort, so it rebuilds. That is affordable only
+       because the floor keeps the set small; notability mode, which can run
+       long, appends and never touches what is on screen. */
+    if (isByDay()) return rebuild(st, kind);
     const list = document.getElementById('relList');
-    if (!list || !rows.length) return;
+    if (!list) return;
     const head = { last: st.lastHead };
-    const html = chunkHtml(rows, isByDay(), head);
+    const html = chunkHtml(rows, false, head);
     st.lastHead = head.last;
     if (html) list.insertAdjacentHTML('beforeend', html);
   }
@@ -320,13 +395,21 @@ MT.viewReleases = (function () {
     const list = document.getElementById('relList');
     if (!list) return;
     const head = { last: null };
-    list.innerHTML = chunkHtml(st.rows, isByDay(), head);
+    list.innerHTML = chunkHtml(ordered(st), isByDay(), head);
     st.lastHead = head.last;
   }
 
   function isByDay() {
     const b = document.querySelector('#relSort [data-sort][aria-pressed="true"]');
-    return !b || b.dataset.sort === 'date';
+    return !!b && b.dataset.sort === 'date';
+  }
+
+  /* Chronological display is safe only because the floor bounds the set: we
+     load everything above it and nothing after, so re-sorting converges
+     instead of reshuffling forever. */
+  function ordered(st) {
+    if (!isByDay()) return st.rows;
+    return st.rows.slice().sort((a, b) => a.stub.release.sortKey - b.stub.release.sortKey);
   }
 
   function foot(st) {
@@ -345,12 +428,15 @@ MT.viewReleases = (function () {
 
     if (!st.rows.length && !st.loading) {
       el.innerHTML = MT.ui.emptyState({
-        title: 'Nothing with a confirmed date',
-        body: st.dropped
-          ? `${MT.util.pluralize(st.dropped, 'title')} fall in this window but only have a year or
-             a month committed so far, so they are not listed. Widen the range, or follow the
-             people making them to hear when a date lands.`
-          : 'No releases in this window. Try a wider range.',
+        title: 'Nothing to show here',
+        body: st.belowFloor
+          ? `Everything releasing in this window is below the notability cut. Switch to
+             Everything to see all ${st.belowFloor + st.dropped} of them.`
+          : st.dropped
+            ? `${MT.util.pluralize(st.dropped, 'title')} fall in this window but only have a year or
+               a month committed so far, so they are not listed. Widen the range, or follow the
+               people making them to hear when a date lands.`
+            : 'No releases in this window. Try a wider range.',
       });
       return;
     }
@@ -361,7 +447,10 @@ MT.viewReleases = (function () {
       bits.push(`${MT.util.pluralize(st.rows.length, 'title')} loaded`);
     }
     if (st.dropped) {
-      bits.push(`${MT.util.pluralize(st.dropped, 'other')} in this window ${st.dropped === 1 ? 'has' : 'have'} only a year or month announced`);
+      bits.push(`${MT.util.pluralize(st.dropped, 'other')} dropped for having no firm date in this window`);
+    }
+    if (st.belowFloor) {
+      bits.push(`${st.belowFloor} too obscure to list`);
     }
 
     let action = '';
@@ -381,7 +470,7 @@ MT.viewReleases = (function () {
 
   /* ── Infinite scroll ──────────────────────────────────────────────────── */
 
-  function watch(st, kind, range, sort, win) {
+  function watch(st, kind, range, tier, win) {
     const sentinel = document.getElementById('relSentinel');
     const root = document.getElementById('viewScroll');
     if (!sentinel || !('IntersectionObserver' in window)) return;
@@ -392,7 +481,7 @@ MT.viewReleases = (function () {
       if (mine !== token) return;                 // route changed under us
       if (!entries.some(e => e.isIntersecting)) return;
       if (st.loading || st.done) return;
-      loadPage(st, kind, range, sort, win);
+      loadPage(st, kind, range, tier, win);
     }, {
       root: root || null,
       /* Start the next page before the user reaches the bottom, so a fast

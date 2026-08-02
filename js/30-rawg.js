@@ -139,7 +139,11 @@ MT.rawg = (function () {
     const size = opts.limit || 20;
     const data = await MT.net.get('rawg', url('/games', {
       dates: `${fromISO},${toISO}`,
-      ordering: opts.sort === 'popular' ? '-added' : 'released',
+      /* Always by `added` — the number of RAWG users who have the game in a
+         library, which is the only notability signal RAWG offers for unreleased
+         titles (ratings barely exist before launch). Paging terminates on it
+         the same way TMDB paging terminates on popularity. */
+      ordering: '-added',
       page_size: size,
       page: opts.page || 1,
     }), { ttl: MT.TTL.search, signal: opts.signal });
