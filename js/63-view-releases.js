@@ -100,7 +100,14 @@ MT.viewReleases = (function () {
     try { localStorage.setItem(SLIDER_KEY, String(v)); } catch (_) {}
   }
 
-  function keyOf(kind, range) { return `${kind}|${range}`; }
+  function keyOf(kind, range, custom) {
+    /* A custom window is a different query for every pair of dates, so the
+       endpoints belong in the key — otherwise two different stretches of
+       calendar would share one accumulated list. */
+    return range === 'custom'
+      ? `${kind}|custom|${(custom && custom.from) || ''}|${(custom && custom.to) || ''}`
+      : `${kind}|${range}`;
+  }
 
   function freshState(kind) {
     return {
@@ -128,6 +135,7 @@ MT.viewReleases = (function () {
     const q = query || {};
     const kind = KINDS.some(k => k.id === q.kind) ? q.kind : 'movie';
     const range = MT.util.RELEASE_RANGES.some(r => r.id === q.range) ? q.range : 'month';
+    const custom = { from: q.from || '', to: q.to || '' };
 
     /* Leaving the route must stop the scroll watcher, or it keeps firing
        against a list that is no longer on screen. */
@@ -140,7 +148,7 @@ MT.viewReleases = (function () {
 
     if (day !== MT.util.todaySortKey()) { state.clear(); day = MT.util.todaySortKey(); }
 
-    const win = MT.util.releaseWindow(range);
+    const win = MT.util.releaseWindow(range, custom);
     view.innerHTML = `
       <div class="toolbar">
         <div class="chips" id="relKinds">
@@ -154,6 +162,13 @@ MT.viewReleases = (function () {
             aria-pressed="${r.id === range}">${esc(r.label)}</button>`).join('')}
         </div>
       </div>
+      ${range === 'custom' ? `
+      <div class="relbar relbar--dates">
+        <label for="relFrom">From</label>
+        <input type="date" id="relFrom" value="${esc(custom.from || MT.util.skToISO(win.from))}">
+        <label for="relTo">to</label>
+        <input type="date" id="relTo" value="${esc(custom.to || MT.util.skToISO(win.to))}">
+      </div>` : ''}
       <div class="relbar">
         <input type="search" id="relFilter" class="sfield" autocomplete="off"
                placeholder="Filter what is loaded…" aria-label="Filter loaded releases">
@@ -172,9 +187,9 @@ MT.viewReleases = (function () {
         <div id="relFoot"></div>
       </div>`;
 
-    wire(view, kind, range, win);
+    wire(view, kind, range, win, custom);
 
-    const key = keyOf(kind, range);
+    const key = keyOf(kind, range, custom);
     if (!state.has(key)) state.set(key, freshState(kind));
     const st = state.get(key);
 
@@ -188,10 +203,17 @@ MT.viewReleases = (function () {
     }
   }
 
-  function wire(view, kind, range, win) {
+  function wire(view, kind, range, win, custom) {
     const go = patch => {
-      const n = Object.assign({ kind, range }, patch);
-      MT.router.go(`#/releases?kind=${n.kind}&range=${n.range}`);
+      const n = Object.assign({ kind, range, from: custom.from, to: custom.to }, patch);
+      let hash = `#/releases?kind=${n.kind}&range=${n.range}`;
+      if (n.range === 'custom') {
+        /* Seed an empty custom range with the window currently on screen, so
+           picking "Custom" shows something rather than an empty form. */
+        hash += `&from=${encodeURIComponent(n.from || MT.util.skToISO(win.from))}`;
+        hash += `&to=${encodeURIComponent(n.to || MT.util.skToISO(win.to))}`;
+      }
+      MT.router.go(hash);
     };
 
     /* Assignment, not addEventListener — #view outlives the route. */
@@ -203,7 +225,7 @@ MT.viewReleases = (function () {
 
       const more = e.target.closest('[data-more]');
       if (more) {
-        const st = state.get(keyOf(kind, range));
+        const st = state.get(keyOf(kind, range, custom));
         if (st && !st.loading && !st.done) await loadPage(st, kind, range, win);
         return;
       }
@@ -211,7 +233,7 @@ MT.viewReleases = (function () {
       const addBtn = e.target.closest('[data-add]');
       if (addBtn) {
         if (suppressTap()) return;
-        const st = state.get(keyOf(kind, range));
+        const st = state.get(keyOf(kind, range, custom));
         const hit = st && st.rows.find(x => x.stub.uid === addBtn.dataset.add);
         if (!hit || hit.owned) return;
         await MT.ui.addItem(hit.stub);
@@ -227,6 +249,19 @@ MT.viewReleases = (function () {
 
     /* The slider only ever re-filters what is already loaded, so it responds
        on `input` — every drag position, no request, no wait. */
+    const from = document.getElementById('relFrom');
+    const to = document.getElementById('relTo');
+    const applyDates = () => {
+      if (!from || !to) return;
+      const a = MT.util.isoToSortKey(from.value);
+      const b2 = MT.util.isoToSortKey(to.value);
+      if (!a || !b2) return;                 // half-typed date: wait
+      if (b2 < a) { to.value = from.value; return; }
+      go({ range: 'custom', from: from.value, to: to.value });
+    };
+    if (from) from.onchange = applyDates;
+    if (to) to.onchange = applyDates;
+
     const nota = document.getElementById('relNota');
     if (nota) {
       /* Widening the cut can want pages we stopped fetching. Clearing `done`
@@ -235,7 +270,7 @@ MT.viewReleases = (function () {
          would load until the user happened to scroll. Kick it directly —
          debounced, because a drag emits an event per step. */
       const resume = MT.util.debounce(() => {
-        const st = state.get(keyOf(kind, range));
+        const st = state.get(keyOf(kind, range, custom));
         if (st && !st.done && !st.loading) loadPage(st, kind, range, win);
       }, 200);
 
@@ -243,7 +278,7 @@ MT.viewReleases = (function () {
         const prev = sliderPos;
         sliderPos = +nota.value;
         writeSlider(sliderPos);
-        const st = state.get(keyOf(kind, range));
+        const st = state.get(keyOf(kind, range, custom));
         if (!st) return;
         if (sliderPos < prev && !st.capped
             && (st.totalPages == null || st.page < st.totalPages)) {
@@ -261,7 +296,7 @@ MT.viewReleases = (function () {
     if (f) {
       f.oninput = MT.util.debounce(() => {
         filterText = f.value.trim().toLowerCase();
-        const st = state.get(keyOf(kind, range));
+        const st = state.get(keyOf(kind, range, custom));
         if (!st) return;
         rebuild(st);
         foot(st);

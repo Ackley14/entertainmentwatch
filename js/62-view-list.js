@@ -30,10 +30,27 @@ MT.viewLibrary = (function () {
     if (q.tag) rows = rows.filter(i => (i.user.tags || []).includes(q.tag));
     if (q.undated) rows = rows.filter(i => i.release.sortKey >= MT.util.SK_UNKNOWN);
 
+    /* Out yet, or not. Two different questions get asked of a watchlist and
+       the answer to both was buried in a mixed list:
+         out   - what could I actually watch this evening
+         soon  - what have I got to plan around, tickets and preorders
+
+       Anything with no date at all is neither: an undated title is not
+       watchable tonight, and it is not something you can plan around either.
+       It has its own filter already. */
+    if (q.avail === 'out') {
+      rows = rows.filter(i => i.release.sortKey <= MT.util.todaySortKey());
+    } else if (q.avail === 'soon') {
+      const today = MT.util.todaySortKey();
+      rows = rows.filter(i => i.release.sortKey > today && i.release.sortKey < MT.util.SK_UNKNOWN);
+    }
+
     const sort = q.sort || 'added';
     rows.sort((SORTS[sort] || SORTS.added).fn);
 
     const label = q.tag ? `#${q.tag}`
+      : q.avail === 'out' ? 'Out now'
+      : q.avail === 'soon' ? 'Still to come'
       : q.status ? MT.ui.STATUS_WORD[q.status]
       : q.kind ? (MT.ui.KIND_LABEL[q.kind === 'movie' ? 'film' : q.kind] || q.kind)
       : 'All titles';
@@ -50,6 +67,10 @@ MT.viewLibrary = (function () {
         <div class="chips" id="kindChips">
           ${[['', 'All'], ['movie', 'Film'], ['tv', 'TV'], ['game', 'Games'], ['anime', 'Anime']].map(([k, l]) =>
             `<button class="chip" type="button" data-kind="${k}" aria-pressed="${(q.kind || '') === k}">${l}</button>`).join('')}
+        </div>
+        <div class="seg" id="availSeg">
+          ${[['', 'Any'], ['out', 'Out now'], ['soon', 'Still to come']].map(([v, l]) =>
+            `<button type="button" data-avail="${v}" aria-pressed="${(q.avail || '') === v}">${l}</button>`).join('')}
         </div>
         <div class="spacer"></div>
         <span class="count">${rows.length} of ${all.length}</span>
@@ -77,10 +98,16 @@ MT.viewLibrary = (function () {
     };
 
     const chips = document.getElementById('kindChips');
-    if (chips) chips.addEventListener('click', e => {
+    if (chips) chips.onclick = e => {
       const b = e.target.closest('[data-kind]');
       if (b) go({ kind: b.dataset.kind || '' });
-    });
+    };
+
+    const avail = document.getElementById('availSeg');
+    if (avail) avail.onclick = e => {
+      const b = e.target.closest('[data-avail]');
+      if (b) go({ avail: b.dataset.avail || '' });
+    };
 
     const sel = document.getElementById('sortSel');
     if (sel) sel.onchange = () => go({ sort: sel.value === 'added' ? '' : sel.value });

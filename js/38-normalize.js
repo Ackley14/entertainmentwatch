@@ -155,6 +155,7 @@ MT.normalize = (function () {
          exists twice — once from TMDB, once from AniList — and the library
          shows duplicates. Genre 16 plus a Japanese origin is the flag. */
       facets: { anime: isAnime(raw, genres) ? 1 : 0 },
+      trailer: pickTrailer(raw),
 
       ids: {
         tmdb: raw.id, tmdbType: kind, imdb,
@@ -281,6 +282,38 @@ MT.normalize = (function () {
       rec: { terms: {}, candidates: {}, seedEligible: 0 },
       meta: { schema: 1, primarySource: 'tmdb', detailsFetchedAt: 0, partial: 1, manualOverrides: {} },
     };
+  }
+
+  /* ── Trailers ───────────────────────────────────────────────────────────
+     `videos` has been inside APPEND_MOVIE and APPEND_TV since the first TMDB
+     call was written, and the normalizer threw it away. Reading it costs
+     nothing extra — the payload is already on the wire.
+
+     Ranked rather than "first match": TMDB returns teasers, clips, featurettes
+     and behind-the-scenes in the same array, frequently with the actual
+     trailer several entries down, and often several dubbed or regional
+     trailers for one film. */
+  function pickTrailer(raw) {
+    const all = ((raw.videos && raw.videos.results) || [])
+      .filter(v => v && v.site === 'YouTube' && v.key);
+    if (!all.length) return null;
+
+    const rank = v => {
+      let score = 0;
+      if (v.type === 'Trailer') score += 100;
+      else if (v.type === 'Teaser') score += 60;
+      else if (v.type === 'Clip') score += 10;
+      else score += 5;
+      if (v.official) score += 30;
+      if ((v.iso_639_1 || 'en') === 'en') score += 20;
+      if (v.size >= 1080) score += 5;
+      /* Later publication usually means the fuller, final cut. */
+      if (v.published_at) score += Math.min(4, String(v.published_at).slice(0, 4) / 1000);
+      return score;
+    };
+
+    const best = all.slice().sort((a, b) => rank(b) - rank(a))[0];
+    return { key: best.key, name: best.name || 'Trailer', type: best.type || 'Trailer' };
   }
 
   function isAnime(raw, genres) {
@@ -641,7 +674,8 @@ MT.normalize = (function () {
      first time you open the item — machinery that already exists for search
      stubs. */
   const SYNC_DROP = ['people', 'keywords', 'companies', 'overview', 'tagline',
-                     'providers', 'idx', 'homepage', 'countries', 'languages'];
+                     'providers', 'idx', 'homepage', 'countries', 'languages',
+                     'trailer'];
 
   function leanForSync(item) {
     const out = {};
@@ -698,7 +732,7 @@ MT.normalize = (function () {
     uidOf, parseUid, buildRelease, emptyRelease, buildTerms,
     summarize, candidateToStub,
     fromTmdb, stubFromTmdbSearch, fromRawg, stubFromRawgSearch, stubFromWikidata,
-    mergeItem, withDefaults, setPath, leanForSync, absorbSynced,
+    mergeItem, withDefaults, setPath, leanForSync, absorbSynced, pickTrailer,
     TMDB_STATUS, STATUS_RANK,
   };
 })();

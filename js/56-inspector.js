@@ -100,6 +100,17 @@ MT.inspector = (function () {
       ${MT.ui.poster(item, { cls: 'insp-poster', size: MT.IMG.poster.md })}
       <div class="itype">${MT.ui.kindTag(item)}${MT.ui.precisionTag(rel)}${MT.ui.driftBadge(rel)}</div>
       <div class="ititle">${esc(item.title)}</div>
+      ${item.trailer ? `
+      <div class="blk blk--trailer">
+        <button class="btn btn--primary" type="button" data-trailer="${esc(item.trailer.key)}"
+                data-trailer-name="${esc(item.title)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          Watch ${esc((item.trailer.type || 'trailer').toLowerCase())}
+        </button>
+      </div>` : ''}
+
       <div class="isub">
         ${MT.ui.dateField(rel)}
         ${item.runtimeMin ? `<span>· ${esc(MT.util.runtimeStr(item.runtimeMin))}</span>` : ''}
@@ -163,6 +174,8 @@ MT.inspector = (function () {
           ${cast.length ? `<dt>Cast</dt><dd>${cast.map(p => esc(p.name)).join(', ')}</dd>` : ''}
         </dl>
       </div>` : ''}
+
+      ${item.kind === 'game' ? '<div class="blk" id="priceBlk"></div>' : ''}
 
       ${providers(item)}
 
@@ -443,6 +456,9 @@ MT.inspector = (function () {
         empty();
         MT.router.resolve();
       }
+      const tr = e.target.closest('[data-trailer]');
+      if (tr) MT.player.open(tr.dataset.trailer, tr.dataset.trailerName);
+
       if (goto) show(goto.dataset.goto);
     };
 
@@ -451,6 +467,7 @@ MT.inspector = (function () {
        a later paint could compare against a signature that predates the edit
        and decide, wrongly, that nothing needs redrawing. */
     wireProgress(item);
+    if (item.kind === 'game' && !item._transient) loadPrice(item);
 
     const notes = document.getElementById('inspNotes');
     if (notes) {
@@ -546,6 +563,46 @@ MT.inspector = (function () {
         }
       };
     });
+  }
+
+  /* Prices are volatile, so they are never stored on the record — fetched when
+     a game is on screen and left to MT.net's cache, which holds them for six
+     hours. That also keeps them out of the synced payload for free. */
+  async function loadPrice(item) {
+    const box = document.getElementById('priceBlk');
+    if (!box) return;
+    const uid = item.uid;
+    let p = null;
+    try {
+      p = await MT.cheapshark.lookup({
+        steamAppId: (item.ids && item.ids.steam) || null,
+        title: item.title,
+      });
+    } catch (e) {
+      void e;                                  // a missing price is not an error
+    }
+    if (currentUid !== uid) return;
+    const box2 = document.getElementById('priceBlk');
+    if (!box2) return;
+
+    if (!p) {
+      box2.innerHTML = `<div class="blk-h">Price <span class="why">PC stores</span></div>
+        <div class="muted" style="font-size:var(--mt-fs-mini)">Not on sale anywhere yet.
+        Unreleased games have no listings, and console-only titles are not covered.</div>`;
+      invalidate();
+      return;
+    }
+
+    box2.innerHTML = `
+      <div class="blk-h">Price <span class="why">cheapest of ~30 PC stores</span></div>
+      <div class="pricerow">
+        <span class="pricenow mono">$${esc(p.price.toFixed(2))}</span>
+        ${p.dealUrl ? `<a class="btn btn--sm" href="${esc(p.dealUrl)}" target="_blank"
+             rel="noopener">Go to deal ↗</a>` : ''}
+      </div>
+      <div class="justwatch">Prices by <a href="https://www.cheapshark.com/" target="_blank"
+        rel="noopener">CheapShark</a></div>`;
+    invalidate();
   }
 
   function markSelected(uid) {

@@ -122,6 +122,9 @@ MT.NET_POLICY = {
      quota. One at a time and a slow bucket is well inside what they ask, and
      this only fires when the Releases view is open on the games tab. */
   wikidata: { rps: 1, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
+  /* No key and no published quota, but it is a small free service — one at a
+     time, and only when a game is actually on screen. */
+  cheapshark: { rps: 2, concurrency: 1, retries: 1, dailyBudget: 400, monthlyBudget: null },
 };
 
 /* ── Cache TTLs (ms) ──────────────────────────────────────────────────────
@@ -143,6 +146,9 @@ MT.TTL = {
   /* Long, because this is the standing safety net under RAWG: a day-old list
      of well-known upcoming games is worth far more than an empty screen. */
   wikidata:     12 * 60 * 60 * 1000,
+  /* Prices move daily and sales start and end without warning, so this is the
+     shortest TTL in the app — a stale bargain is a wasted trip. */
+  price:        6 * 60 * 60 * 1000,
   /* The rec slate is additionally invalidated whenever the library changes,
      so a long TTL costs nothing in freshness — it only stops the ~35-request
      rebuild from firing on a timer while your taste has not moved. */

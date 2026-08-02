@@ -532,3 +532,81 @@ tbody td[data-col="title"] { position: relative; }
   border-radius: var(--mt-radius);
   font-size: var(--mt-fs-mini); line-height: 1.5;
 }
+
+/* Custom window pickers, on their own row above the filter bar. */
+.relbar--dates label {
+  font-size: var(--mt-fs-micro); letter-spacing: var(--mt-tracking-caps);
+  text-transform: uppercase; color: var(--mt-text-muted); font-weight: 600;
+  flex: 0 0 auto;
+}
+.relbar--dates input[type="date"] {
+  height: var(--mt-control-h, 26px);
+  padding: 0 var(--mt-space-3);
+  border: var(--mt-rule-w) solid var(--mt-line-rule);
+  border-radius: var(--mt-radius-sm);
+  background: var(--mt-surface-canvas);
+  color: var(--mt-text-primary);
+  font-family: var(--mt-font-mono); font-size: var(--mt-fs-sm);
+  min-width: 0;
+}
+
+/* ══ TRAILER PLAYER ═══════════════════════════════════════════════════════
+   A card at 80% of the viewport. No backdrop-filter here on purpose: the
+   inspector sheet is the app's one blurred surface (asserted by the design
+   tests), and blurring behind a playing video is the surest way to make a
+   phone stutter. */
+.player {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--mt-space-6);
+  background: var(--mt-scrim);
+}
+.player[hidden] { display: none !important; }
+
+.player-card {
+  width: 80vw; max-width: 1400px;
+  background: var(--mt-surface-rail);
+  border: var(--mt-rule-w) solid var(--mt-line-rule);
+  border-radius: var(--mt-radius-lg);
+  box-shadow: var(--mt-shadow-drawer);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+.player-bar {
+  display: flex; align-items: center; gap: var(--mt-space-4);
+  padding: var(--mt-space-3) var(--mt-space-4) var(--mt-space-3) var(--mt-space-5);
+  border-bottom: var(--mt-rule-w) solid var(--mt-line-hairline);
+  flex: 0 0 auto;
+}
+.player-title {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 500; color: var(--mt-text-primary);
+}
+.player-out {
+  flex: 0 0 auto; font-size: var(--mt-fs-mini);
+  color: var(--mt-text-secondary); text-decoration: underline;
+}
+
+/* 16:9 held by aspect-ratio, capped so the card cannot grow past 80% of the
+   viewport height on a wide screen. */
+.player-frame {
+  position: relative; width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(80vh - 52px);
+  background: #000;
+}
+.player-frame iframe {
+  position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+}
+
+/* The app's panes scroll independently; freeze them while the video is up. */
+.has-player .app { pointer-events: none; }
+.has-player .player { pointer-events: auto; }
+
+.blk--trailer { padding-top: 0; }
+.blk--trailer .btn { display: inline-flex; align-items: center; gap: 7px; }
+
+.pricerow { display: flex; align-items: center; gap: var(--mt-space-4); }
+.pricenow { font-size: 19px; font-weight: 600; color: var(--mt-text-primary); }

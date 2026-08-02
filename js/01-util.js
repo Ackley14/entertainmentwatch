@@ -401,12 +401,35 @@ MT.util = (function () {
     { id: 'half',   label: 'Next 6 months' },
     { id: 'year',   label: 'Rest of this year' },
     { id: 'nextyr', label: 'Next year' },
+    { id: 'custom', label: 'Custom…' },
   ];
 
-  /* Returns { from, to } as inclusive sort keys. */
-  function releaseWindow(id) {
+  /* A custom window travels in the URL as `from` and `to`, so a particular
+     stretch of calendar can be linked and reloaded. Parsed by regex rather
+     than by Date, for the usual reason: new Date("2027-03-15") is UTC midnight
+     and comes back a day earlier for everyone west of Greenwich. */
+  function isoToSortKey(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '').trim());
+    if (!m) return null;
+    const y = +m[1], mo = +m[2], d = +m[3];
+    if (mo < 1 || mo > 12) return null;
+    if (d < 1 || d > lastDayOfMonth(y, mo)) return null;
+    return y * 10000 + mo * 100 + d;
+  }
+
+  /* Returns { from, to } as inclusive sort keys. `opts` carries the custom
+     window's endpoints when `id` is 'custom'. */
+  function releaseWindow(id, opts) {
     const today = todaySortKey();
     const t = sortKeyToParts(today);
+    if (id === 'custom') {
+      const from = isoToSortKey(opts && opts.from);
+      const to = isoToSortKey(opts && opts.to);
+      /* Fall back rather than render an impossible window. A backwards range
+         is a typo, not a request for nothing. */
+      if (!from || !to || to < from) return { from: today, to: endOfMonthSortKey(t.y, t.m) };
+      return { from, to };
+    }
     switch (id) {
       case 'week':
         return { from: today, to: addDaysToSortKey(today, 6) };
@@ -436,7 +459,7 @@ MT.util = (function () {
   return {
     SK_UNKNOWN, SK_TBA, MONTHS, MONTHS_ABBR,
     skToISO, lastDayOfMonth, endOfMonthSortKey, monthsAhead,
-    RELEASE_RANGES, releaseWindow,
+    RELEASE_RANGES, releaseWindow, isoToSortKey,
     parseNaive, sortKeyOf, sortKeyToParts, todaySortKey,
     addDaysToSortKey, daysBetweenSortKeys, daysUntil,
     derivePrecision, quarterOf, displayRelease, shortDate,

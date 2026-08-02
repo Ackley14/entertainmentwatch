@@ -40,6 +40,13 @@ MT.tree = (function () {
     let undated = 0;
     const today = MT.util.todaySortKey();
     let upcoming = 0;
+    /* Out yet, or not. `upcoming` above counts the same thing for the Schedule
+       section; kept separate so the two can diverge without surprising each
+       other. Watched titles are excluded from "Out now" — the question that
+       filter answers is "what could I watch tonight", and something already
+       finished is not an answer to it. */
+    let outNow = 0;
+    let stillToCome = 0;
 
     for (const it of items) {
       byStatus[it.user.status] = (byStatus[it.user.status] || 0) + 1;
@@ -47,6 +54,12 @@ MT.tree = (function () {
       for (const t of (it.user.tags || [])) tags.set(t, (tags.get(t) || 0) + 1);
       if (it.release.sortKey >= MT.util.SK_UNKNOWN) undated++;
       else if (it.release.sortKey >= today) upcoming++;
+
+      if (it.release.sortKey < MT.util.SK_UNKNOWN) {
+        if (it.release.sortKey <= today) {
+          if (it.user.status !== 'watched') outNow++;
+        } else stillToCome++;
+      }
     }
 
     return [
@@ -56,6 +69,8 @@ MT.tree = (function () {
         { id: 'st-watching', label: 'Watching', route: '#/library?status=watching', n: byStatus.watching, dot: 'watching', fill: 1 },
         { id: 'st-watched', label: 'Finished', route: '#/library?status=watched', n: byStatus.watched, dot: 'watched' },
         { id: 'st-dropped', label: 'Dropped', route: '#/library?status=dropped', n: byStatus.dropped, dot: 'dropped' },
+        { id: 'av-out', label: 'Out now', route: '#/library?avail=out', n: outNow },
+        { id: 'av-soon', label: 'Still to come', route: '#/library?avail=soon', n: stillToCome },
         { id: 'types', label: 'By type', children: [
           { id: 'k-film', label: 'Film', route: '#/library?kind=movie', n: byKind.film, dot: 'film' },
           { id: 'k-tv', label: 'Television', route: '#/library?kind=tv', n: byKind.tv, dot: 'tv' },
@@ -155,7 +170,7 @@ MT.tree = (function () {
      too, and treating those as filters meant #/releases?kind=game matched no
      tree entry at all — so nothing was selected, and the stale focus index
      lit up Anime instead. */
-  const FILTER_PARAMS = { '/library': ['status', 'kind', 'tag', 'undated'] };
+  const FILTER_PARAMS = { '/library': ['status', 'kind', 'tag', 'undated', 'avail'] };
 
   function routeMatches(route, active) {
     const [rp, rq] = route.replace('#', '').split('?');
