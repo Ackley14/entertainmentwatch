@@ -1,0 +1,212 @@
+/* ── Reset, shell, typography ─────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+
+/* The UA stylesheet's [hidden] rule is a bare attribute selector, so ANY class
+   that sets display beats it. Every component below that uses display:flex or
+   display:grid would otherwise ignore the hidden attribute entirely. */
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--ink-000);
+  color: var(--bone-200);
+  font: var(--t-base)/1.55 var(--face-ui);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  overflow-x: hidden;           /* the page body never scrolls sideways */
+}
+
+/* A faint film grain over the whole field. Static, cheap, no image request:
+   two offset radial gradients at very low alpha. Keeps large flat blacks from
+   looking like dead pixels on OLED. */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .5;
+  background-image:
+    radial-gradient(circle at 17% 23%, rgba(255,255,255,.014) 0 1px, transparent 1px),
+    radial-gradient(circle at 71% 62%, rgba(255,255,255,.010) 0 1px, transparent 1px);
+  background-size: 3px 3px, 5px 5px;
+}
+
+img, svg { display: block; max-width: 100%; }
+img { height: auto; background: var(--ink-050); }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--amber-100); }
+
+:focus-visible {
+  outline: 2px solid var(--amber-200);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--amber-300); color: var(--ink-000); }
+
+/* ── Layout shell ─────────────────────────────────────────────────────── */
+
+.shell {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column;
+  min-height: 100dvh;
+}
+
+.shell__bar {
+  position: sticky; top: 0; z-index: var(--z-bar);
+  display: flex; align-items: center; gap: var(--s-5);
+  height: var(--bar-h);
+  padding: 0 var(--s-5);
+  background: color-mix(in srgb, var(--ink-000) 88%, transparent);
+  backdrop-filter: blur(12px) saturate(1.4);
+  border-bottom: 1px solid var(--rule-faint);
+}
+
+.brand { display: flex; align-items: center; gap: var(--s-2); flex: none; }
+.brand:hover { color: inherit; }
+.brand__mark {
+  width: 11px; height: 11px;
+  background: var(--amber-200);
+  /* An aperture blade, not a circle. */
+  clip-path: polygon(50% 0, 100% 35%, 82% 100%, 18% 100%, 0 35%);
+}
+.brand__word {
+  font: 600 var(--t-sm)/1 var(--face-ui);
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--bone-100);
+}
+@media (max-width: 900px) { .brand__word { display: none; } }
+
+.shell__nav {
+  display: flex; align-items: center; gap: var(--s-4);
+  margin-left: auto; flex: none;
+  font-size: var(--t-sm);
+}
+.shell__nav a {
+  position: relative;
+  color: var(--bone-300);
+  padding: var(--s-2) 0;
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease);
+}
+.shell__nav a:hover { color: var(--bone-100); }
+.shell__nav a[aria-current="page"] { color: var(--amber-100); }
+.shell__nav a[aria-current="page"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 1px; background: var(--amber-200);
+}
+@media (max-width: 780px) {
+  .shell__bar { gap: var(--s-3); padding: 0 var(--s-3); }
+  .shell__nav { gap: var(--s-3); font-size: var(--t-xs); }
+  .shell__nav a[data-nav="stats"],
+  .shell__nav a[data-nav="people"] { display: none; }
+}
+
+.view {
+  flex: 1;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: var(--s-6) var(--s-5) var(--s-8);
+}
+@media (max-width: 780px) { .view { padding: var(--s-5) var(--s-3) var(--s-7); } }
+.view:focus { outline: none; }
+
+/* ── Typography ───────────────────────────────────────────────────────── */
+
+h1, h2, h3 {
+  font-family: var(--face-title);
+  font-weight: 600;
+  color: var(--bone-100);
+  line-height: 1.15;
+  letter-spacing: -.01em;
+}
+h1 { font-size: var(--t-xl); }
+h2 { font-size: var(--t-lg); }
+h3 { font-size: var(--t-md); }
+
+/* The section-header motif: small caps label, then a hairline running to the
+   edge. Used everywhere a group of things starts. It is the main structural
+   device in the design, so it earns its own class. */
+.rulehead {
+  display: flex; align-items: baseline; gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+.rulehead__label {
+  font: 500 var(--t-xs)/1 var(--face-ui);
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--bone-300);
+  white-space: nowrap;
+}
+.rulehead__rule { flex: 1; height: 1px; background: var(--rule-faint); }
+.rulehead__aside {
+  font: var(--t-xs)/1 var(--face-mono);
+  color: var(--bone-400);
+  white-space: nowrap;
+}
+.rulehead a.rulehead__aside:hover { color: var(--amber-100); }
+
+.num { font-family: var(--face-mono); font-variant-numeric: tabular-nums; }
+
+.prose { max-width: var(--measure); color: var(--bone-200); }
+.prose p + p { margin-top: var(--s-3); }
+.prose a { color: var(--amber-100); text-decoration: underline; text-underline-offset: 2px; }
+
+.muted { color: var(--bone-300); }
+.dim   { color: var(--bone-400); }
+
+.sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ── Colophon ─────────────────────────────────────────────────────────── */
+
+.colophon {
+  border-top: 1px solid var(--rule-faint);
+  padding: var(--s-5);
+  display: flex; flex-direction: column; gap: var(--s-2);
+  align-items: center; text-align: center;
+}
+.colophon__legal {
+  font-size: var(--t-xs); line-height: 1.5;
+  color: var(--bone-400);
+  max-width: 76ch;
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--s-2); flex-wrap: wrap;
+}
+.colophon__legal a { color: var(--bone-300); text-decoration: underline; text-underline-offset: 2px; }
+.colophon__legal a:hover { color: var(--amber-100); }
+.colophon__meta {
+  font: var(--t-xs)/1 var(--face-mono);
+  color: var(--bone-400);
+  display: flex; gap: var(--s-4); flex-wrap: wrap; justify-content: center;
+}
+.colophon__meta .stale { color: var(--warn); }
+
+/* The TMDB mark, drawn in CSS so nothing is fetched and nothing can 404.
+   Their primary logo is a horizontal bar-gradient; this is a neutral
+   stand-in carrying the wordmark, paired with the required disclaimer. */
+.tmdb-logo {
+  display: inline-block; width: 46px; height: 12px; flex: none;
+  background: linear-gradient(90deg, #90cea1 0%, #01b4e4 60%, #0d253f 100%);
+  border-radius: 1px;
+}
+
+.banner {
+  border-bottom: 1px solid var(--rule);
+  background: var(--amber-wash);
+  color: var(--amber-100);
+  padding: var(--s-3) var(--s-5);
+  font-size: var(--t-sm);
+  display: flex; align-items: center; gap: var(--s-3);
+}
+.banner button { color: var(--amber-100); text-decoration: underline; margin-left: auto; }

@@ -1,0 +1,92 @@
+/* ── MovieTrak design tokens ──────────────────────────────────────────────
+   "Late Show": a repertory-cinema programme, printed at night.
+   Ink field, warm bone type, one sodium-amber marquee accent, hairline rules
+   doing the structural work. Deliberately un-round, un-shadowed, un-gradient.
+   Dark only — a print-on-black programme has no light mode.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Field. Not pure black: paper stock under a projector bulb. */
+  --ink-000: #0b0b0d;   /* page */
+  --ink-050: #101013;   /* sunken wells, inputs */
+  --ink-100: #16161a;   /* cards */
+  --ink-150: #1d1d22;   /* card hover */
+  --ink-200: #26262d;   /* raised */
+
+  /* Rules. Hairlines carry the structure; there are no shadows anywhere. */
+  --rule-faint: #232329;
+  --rule:       #33333c;
+  --rule-loud:  #4a4a56;
+
+  /* Type. Warm bone, never #fff — pure white vibrates against this field. */
+  --bone-100: #f0ebe2;  /* titles */
+  --bone-200: #cfc9be;  /* body */
+  --bone-300: #9b958a;  /* secondary */
+  --bone-400: #6e6960;  /* tertiary, disabled */
+
+  /* Marquee. Exactly one accent, the colour of a sodium bulb. */
+  --amber-100: #ffcf7a;
+  --amber-200: #f5a623;
+  --amber-300: #b8761a;
+  --amber-wash: rgba(245, 166, 35, .12);
+
+  /* Semantic. Desaturated to sit inside the amber world, not fight it. */
+  --good:  #7fae6e;
+  --warn:  #d9903f;
+  --bad:   #c4634f;
+  --cool:  #6f93b5;   /* informational; the only non-warm hue */
+
+  /* Rating source marks — recognisable without being brand-accurate mimicry. */
+  --src-imdb:   #e8c33c;
+  --src-tmdb:   #4fb6a4;
+  --src-rt:     #d1584a;
+  --src-meta:   #86b84f;
+  --src-anilist:#7b9fe0;
+  --src-rawg:   #b3b3bb;
+
+  /* Type stack. System-resident only — no CDN, no webfont payload.
+     Serif for titles (a programme is set in serif), grotesque for UI,
+     monospace for every number so columns of dates and scores align. */
+  --face-title: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+                Georgia, "Times New Roman", serif;
+  --face-ui:    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter,
+                Roboto, "Helvetica Neue", Arial, sans-serif;
+  --face-mono:  ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
+                "Roboto Mono", Menlo, Consolas, monospace;
+
+  /* Scale — a fourth-ish ratio, truncated where it stops being useful. */
+  --t-xs:  .6875rem;  /* 11px  legal, colophon */
+  --t-sm:  .8125rem;  /* 13px  meta, chips */
+  --t-base:  .9375rem;/* 15px  body */
+  --t-md:  1.125rem;  /* 18px  card titles */
+  --t-lg:  1.5rem;    /* 24px  section heads */
+  --t-xl:  2rem;      /* 32px  page heads */
+  --t-2xl: 2.75rem;   /* 44px  item hero */
+  --t-3xl: 4rem;      /* 64px  stat numerals */
+
+  /* Space — 4px base, named by use not size. */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 72px;
+
+  /* Geometry. 2px is the largest radius in the system, and it is used sparingly.
+     Posters and chips are square. This is the single strongest anti-generic
+     signal in the whole design — resist adding rounding. */
+  --radius: 2px;
+
+  --measure: 68ch;          /* prose max width */
+  --bar-h: 56px;            /* sticky header */
+  --poster-ratio: 2 / 3;
+
+  /* Motion. Short, linear-ish, and honest. Nothing bounces. */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --fast: 90ms;
+  --mid: 170ms;
+
+  --z-pop: 40;
+  --z-bar: 50;
+  --z-toast: 60;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --mid: 0ms; }
+}

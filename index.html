@@ -1,0 +1,95 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>MovieTrak</title>
+<meta name="description" content="A local-first watchlist for films, television, games and anime.">
+
+<link rel="stylesheet" href="css/01-tokens.css">
+<link rel="stylesheet" href="css/02-base.css">
+<link rel="stylesheet" href="css/03-components.css">
+<link rel="stylesheet" href="css/04-views.css">
+
+<div class="shell">
+  <header class="shell__bar">
+    <a class="brand" href="#/" title="MovieTrak">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__word">MovieTrak</span>
+    </a>
+
+    <form class="omni" role="search" autocomplete="off" onsubmit="return false">
+      <input id="omni" class="omni__input" type="search" spellcheck="false"
+             placeholder="Search films, television, games&hellip;"
+             aria-label="Search" aria-controls="omni-pop" aria-expanded="false" role="combobox">
+      <kbd class="omni__hint">/</kbd>
+      <div id="omni-pop" class="omni__pop" role="listbox" hidden></div>
+    </form>
+
+    <nav class="shell__nav" aria-label="Main">
+      <a href="#/list"   data-nav="list">Library</a>
+      <a href="#/up"     data-nav="up">Coming&nbsp;Up</a>
+      <a href="#/recs"   data-nav="recs">For&nbsp;You</a>
+      <a href="#/people" data-nav="people">Following</a>
+      <a href="#/alerts" data-nav="alerts">
+        Activity<span id="unread-dot" class="dot" hidden></span>
+      </a>
+      <a href="#/stats"  data-nav="stats">Stats</a>
+      <a href="#/unlock" data-nav="unlock" id="sync-chip" title="Sync status">
+        <span id="sync-icon">&#9679;</span>
+      </a>
+      <a href="#/settings" data-nav="settings" aria-label="Settings">&#9881;</a>
+    </nav>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="view" class="view" tabindex="-1"></main>
+
+  <footer class="colophon">
+    <p class="colophon__legal">
+      <span id="tmdb-logo" class="tmdb-logo" aria-hidden="true"></span>
+      This website uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.
+    </p>
+    <p class="colophon__legal">
+      Game data by <a href="https://rawg.io/" target="_blank" rel="noopener">RAWG</a>
+      &middot; Ratings via <a href="https://www.omdbapi.com/" target="_blank" rel="noopener">OMDb</a>
+      &middot; Anime data by <a href="https://anilist.co/" target="_blank" rel="noopener">AniList</a>
+      &middot; A personal, non-commercial tool.
+    </p>
+    <p class="colophon__meta">
+      <span id="backup-age"></span>
+      <span id="sweep-age"></span>
+    </p>
+  </footer>
+</div>
+
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<script src="js/00-config.js"></script>
+<script src="js/01-util.js"></script>
+<script src="js/05-net.js"></script>
+<script src="js/10-db.js"></script>
+<script src="js/12-repo.js"></script>
+<script src="js/15-crypto.js"></script>
+<script src="js/16-cloud.js"></script>
+<script src="js/20-tmdb.js"></script>
+<script src="js/30-rawg.js"></script>
+<script src="js/31-omdb.js"></script>
+<script src="js/32-anilist.js"></script>
+<script src="js/38-normalize.js"></script>
+<script src="js/40-recommend.js"></script>
+<script src="js/45-alerts.js"></script>
+<script src="js/48-sync.js"></script>
+<script src="js/49-router.js"></script>
+<script src="js/50-ui-core.js"></script>
+<script src="js/60-view-home.js"></script>
+<script src="js/61-view-search.js"></script>
+<script src="js/62-view-list.js"></script>
+<script src="js/63-view-item.js"></script>
+<script src="js/64-view-up.js"></script>
+<script src="js/65-view-recs.js"></script>
+<script src="js/66-view-alerts.js"></script>
+<script src="js/67-view-people.js"></script>
+<script src="js/68-view-stats.js"></script>
+<script src="js/69-view-settings.js"></script>
+<script src="js/70-view-unlock.js"></script>
+<script src="js/90-boot.js"></script>
