@@ -332,29 +332,56 @@ MT.viewReleases = (function () {
 
     const next = st.page + 1;
     const meta = {};
+
+    /* Both game sources are asked AT THE SAME TIME on the first page. Asking
+       Wikidata only after RAWG fails means waiting out RAWG's failure first,
+       and a dead origin behind Cloudflare takes ~20s to admit it — so the
+       fallback that exists to avoid an empty screen was itself arriving a
+       minute late. Fired together, the list appears as fast as whichever
+       source is healthy. */
+    let rawgSettled = false;
+    const wdPromise = (kind === 'game' && next === 1 && !st.wd)
+      ? supplement(st, win, mine).then(() => {
+          /* Paint as soon as Wikidata lands rather than waiting out RAWG.
+             Measured: Wikidata answers in ~400ms while a dead RAWG holds for
+             its full 8s deadline, so waiting turns a list into eight seconds
+             of skeletons. RAWG's rows are merged in below when it settles. */
+          if (rawgSettled || mine !== token || !st.rows.length) return;
+          const l = document.getElementById('relList');
+          if (l) l.innerHTML = '';
+          harmonise(st);
+          rebuild(st);
+          foot(st);
+        })
+      : null;
+
     let env;
+    let rawgErr = null;
     try {
       env = await fetchPage(kind, win, next, meta);
     } catch (e) {
-      if (mine !== token) return;
+      rawgErr = e;
+    }
+    rawgSettled = true;
+    if (wdPromise) await wdPromise;
+    if (mine !== token) { st.loading = false; return; }
+
+    if (rawgErr) {
       st.loading = false;
 
-      /* Games have a second source. Before reporting failure, ask Wikidata —
-         a list of well-known releases beats an error message. */
-      if (kind === 'game' && next === 1 && !st.wd) {
+      /* A list of well-known releases beats an error message. */
+      if (st.wd && st.wd.count) {
         const l0 = document.getElementById('relList');
         if (l0) l0.innerHTML = '';
-        await supplement(st, win, mine);
-        if (mine !== token) return;
-        if (st.wd && st.wd.count) {
-          st.page = 1;
-          st.done = true;                    // no paging without the primary
-          rebuild(st);
-          foot(st);
-          return;
-        }
+        st.page = 1;
+        st.done = true;                        // no paging without the primary
+        harmonise(st);
+        rebuild(st);
+        foot(st);
+        return;
       }
 
+      const e = rawgErr;
       st.error = e;
       /* Clear the skeletons. Leaving shimmering placeholders above an error
          message reads as "still working on it" when it is not. */
@@ -399,18 +426,9 @@ MT.viewReleases = (function () {
 
     if (st.page === 1) document.getElementById('relList').innerHTML = '';
 
-    /* Games get a second opinion. RAWG is the only source that can enumerate
-       the long tail, so it stays primary — but it goes down often, and when it
-       does the whole games tab would otherwise be empty. Wikidata holds far
-       fewer upcoming titles (~295 across a year against Steam's thousands) and
-       they are the well-known ones, which is exactly the right shape for a
-       floor: you lose the obscure end, never the whole view.
-
-       Runs once per window, after the first RAWG page, so it costs one extra
-       request and only on the games tab. */
-    if (kind === 'game' && next === 1 && !st.wd) {
-      await supplement(st, win, mine);
-    }
+    /* Both sources are in now, so put the Wikidata rows on RAWG's scale and
+       drop anything that arrived twice. */
+    harmonise(st);
 
     if (added.length || (st.wd && st.wd.count)) rebuild(st);
     foot(st);
@@ -464,10 +482,12 @@ MT.viewReleases = (function () {
          median for this window turned out to be, so one slider governs both.
          With no RAWG data at all the median is 0 and everything is visible,
          which is the correct behaviour when it is the only source present. */
-      const score = (st.scale || 0) > 0
-        ? (r.sitelinks / WD_MEDIAN_SITELINKS) * st.scale
-        : r.sitelinks;
-      st.rows.push({ stub, score, owned: owned.get(stub.uid) || null, source: 'wikidata' });
+      /* Raw for now. harmonise() converts it onto RAWG's scale once that
+         median is known — which, with both fetches in flight at once, cannot
+         be until they have both returned. */
+      const score = r.sitelinks;
+      st.rows.push({ stub, score, sitelinks: r.sitelinks,
+                     owned: owned.get(stub.uid) || null, source: 'wikidata' });
       scores.push(score);
       n++;
     }
@@ -489,13 +509,49 @@ MT.viewReleases = (function () {
       }
     }
 
-    st.wd = { count: n, only: !st.rows.some(x => x.source !== 'wikidata') };
+    /* `only` is NOT frozen here. With both sources now in flight at once this
+       runs before RAWG's rows land, so a snapshot taken now says "Wikidata
+       only" forever — and a perfectly healthy load carried a banner saying
+       RAWG was down. It is derived at render time instead. */
+    st.wd = { count: n };
   }
 
   /* Measured across a live sample: Hades 30, Pentiment 15, Sir Brante 4,
      Peglin 3. A median of about 4 is what an ordinary listed game scores, so
      that is the value mapped onto RAWG's own median. */
   const WD_MEDIAN_SITELINKS = 4;
+
+  /* Run once both sources have answered.
+
+     Sitelink counts and RAWG `added` are different units, so Wikidata rows
+     arrive holding their raw sitelink count and are converted here — which can
+     only happen after RAWG's median is known, and with the two fetches now
+     running concurrently that is not until both are back.
+
+     Deduplication also has to wait: fired together, neither source can consult
+     the other's titles while it is absorbing. Where both have a title the RAWG
+     row wins, since it carries cover art. */
+  function harmonise(st) {
+    const rawgScale = st.rows.some(r => r.source === 'rawg') ? st.scale : null;
+    if (rawgScale > 0) {
+      for (const r of st.rows) {
+        if (r.source !== 'wikidata') continue;
+        r.score = (r.sitelinks / WD_MEDIAN_SITELINKS) * rawgScale;
+      }
+    }
+
+    const keep = new Map();
+    for (const r of st.rows) {
+      const k = titleKey(r.stub);
+      const prev = keep.get(k);
+      if (!prev) { keep.set(k, r); continue; }
+      if (prev.source === 'wikidata' && r.source === 'rawg') keep.set(k, r);
+    }
+    if (keep.size !== st.rows.length) {
+      st.rows = [...keep.values()];
+      st.seen = new Set(st.rows.map(r => r.stub.uid));
+    }
+  }
 
   function titleKey(stub) {
     const p = MT.util.sortKeyToParts(stub.release.sortKey);
@@ -693,7 +749,8 @@ MT.viewReleases = (function () {
 
     /* When RAWG is the missing half, say so plainly — the gap is real and
        specific (obscure and unannounced titles), not a general failure. */
-    const banner = st.wd && st.wd.only && st.wd.count
+    const wdOnly = st.wd && st.wd.count && !st.rows.some(r => r.source !== 'wikidata');
+    const banner = wdOnly
       ? `<div class="relstale">RAWG is not answering, so this is the Wikidata list: well-known
            releases only. Smaller and newly announced games are missing until it is back.</div>`
       : st.stale

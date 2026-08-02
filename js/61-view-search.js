@@ -347,8 +347,14 @@ MT.viewSearch = (function () {
         if (!hit || hit.owned) return;
         await MT.ui.addItem(hit.stub);
         hit.owned = 'want';
-        host.dataset.sig = '';           // force a repaint of the button state
-        paint();
+        /* Swap this one button, do NOT repaint. A full paint() re-partitions
+           the list into "Already in your index" and "Results", so the row you
+           just added jumps out of place and up into the other group, taking
+           the scroll position with it. Adding several things in a row was
+           unusable. The regrouping is still correct on the next search; it
+           just must not happen under the user's thumb. */
+        addBtn.outerHTML = `<span class="add is-in">✓ ${esc(MT.ui.STATUS_WORD.want)}</span>`;
+        host.dataset.sig = '';           // next real paint rebuilds properly
         return;
       }
       const el = e.target.closest('[data-uid]');

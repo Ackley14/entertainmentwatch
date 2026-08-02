@@ -113,21 +113,29 @@ MT.config = (function () {
             page is opened, never on add, never during a background sweep.
    RAWG   — "up to 20,000 requests per month" on the Free plan (rawg.io/apidocs).
             A daily sub-cap stops one bad afternoon eating the month. */
+/* `timeout` is per ATTEMPT, in ms. Without one, a host whose origin is down
+   but whose CDN is up leaves the request hanging for however long that CDN
+   waits — RAWG behind Cloudflare takes about 20 seconds to return a 522, and
+   with two retries that is a full minute of blank screen before any fallback
+   can even start. Measured, not guessed. */
 MT.NET_POLICY = {
-  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: null, monthlyBudget: null },
-  omdb:    { rps: 2,  concurrency: 1, retries: 1, dailyBudget: 250,  monthlyBudget: null },
-  rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: 600,  monthlyBudget: 19000 },
-  anilist: { rps: 0.4, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
+  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: null, monthlyBudget: null, timeout: 12000 },
+  omdb:    { rps: 2,  concurrency: 1, retries: 1, dailyBudget: 250,  monthlyBudget: null, timeout: 10000 },
+  /* 8s: a healthy RAWG answers in well under a second, so anything near this
+     is a dead origin and waiting longer buys nothing. retries drop to 1 —
+     three 8s attempts against a 522 is 24 seconds of nothing. */
+  rawg:    { rps: 4,  concurrency: 3, retries: 1, dailyBudget: 600,  monthlyBudget: 19000, timeout: 8000 },
+  anilist: { rps: 0.4, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null, timeout: 12000 },
   /* Wikimedia asks for modest, serial querying rather than imposing a hard
      quota. One at a time and a slow bucket is well inside what they ask, and
      this only fires when the Releases view is open on the games tab. */
   /* retries:1 — the query service answers 502 in bursts, and three attempts
      inside one bounded window just spends the whole budget on the same bad
      minute. One retry, then fall back and try again later. */
-  wikidata: { rps: 1, concurrency: 1, retries: 1, dailyBudget: null, monthlyBudget: null },
+  wikidata: { rps: 1, concurrency: 1, retries: 1, dailyBudget: null, monthlyBudget: null, timeout: 20000 },
   /* No key and no published quota, but it is a small free service — one at a
      time, and only when a game is actually on screen. */
-  cheapshark: { rps: 2, concurrency: 1, retries: 1, dailyBudget: 400, monthlyBudget: null },
+  cheapshark: { rps: 2, concurrency: 1, retries: 1, dailyBudget: 400, monthlyBudget: null, timeout: 8000 },
 };
 
 /* ── Cache TTLs (ms) ──────────────────────────────────────────────────────

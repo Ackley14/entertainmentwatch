@@ -249,21 +249,47 @@ MT.net = (function () {
       for (let attempt = 0; attempt <= policy.retries; attempt++) {
         await buckets[source].take();
         let res = null;
+        /* A deadline per attempt. Cloudflare in front of a dead origin holds
+           the connection for ~20s before answering 522, and fetch() has no
+           timeout of its own, so without this a single dead source blocks the
+           screen for a minute. */
+        const ctl = new AbortController();
+        let timedOut = false;
+        const onOuterAbort = () => ctl.abort();
+        if (opts.signal) {
+          if (opts.signal.aborted) ctl.abort();
+          else opts.signal.addEventListener('abort', onOuterAbort, { once: true });
+        }
+        const deadline = setTimeout(() => { timedOut = true; ctl.abort(); },
+                                    policy.timeout || 15000);
         try {
           res = await fetch(url, {
             method: opts.method || 'GET',
             headers: opts.headers || undefined,
             body: opts.body || undefined,
-            signal: opts.signal,
+            signal: ctl.signal,
             cache: 'no-cache',                 /* revalidate via ETag; do NOT
                                                   cache-bust with ?v=Date.now(),
                                                   which defeats 304s entirely */
             credentials: 'omit',               /* wildcard ACAO forbids credentials */
           });
         } catch (rawErr) {
+          /* Our own deadline is NOT the caller cancelling. Reported as an
+             abort it would skip the stale-cache fallback and surface as
+             "Request cancelled", which tells the user nothing. */
+          if (timedOut) {
+            lastErr = new NetError('server',
+              `${source} did not respond within ${Math.round((policy.timeout || 15000) / 1000)}s.`,
+              { source, timeout: true });
+            if (attempt < policy.retries) { clearTimeout(deadline); continue; }
+            break;
+          }
           lastErr = await classify(source, rawErr, null);
           if (lastErr.kind === 'abort') throw lastErr;
           break;                               // opaque/offline: retrying won't help
+        } finally {
+          clearTimeout(deadline);
+          if (opts.signal) opts.signal.removeEventListener('abort', onOuterAbort);
         }
 
         if (res.ok) {
