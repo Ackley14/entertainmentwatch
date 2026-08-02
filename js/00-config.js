@@ -121,7 +121,10 @@ MT.NET_POLICY = {
   /* Wikimedia asks for modest, serial querying rather than imposing a hard
      quota. One at a time and a slow bucket is well inside what they ask, and
      this only fires when the Releases view is open on the games tab. */
-  wikidata: { rps: 1, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
+  /* retries:1 — the query service answers 502 in bursts, and three attempts
+     inside one bounded window just spends the whole budget on the same bad
+     minute. One retry, then fall back and try again later. */
+  wikidata: { rps: 1, concurrency: 1, retries: 1, dailyBudget: null, monthlyBudget: null },
   /* No key and no published quota, but it is a small free service — one at a
      time, and only when a game is actually on screen. */
   cheapshark: { rps: 2, concurrency: 1, retries: 1, dailyBudget: 400, monthlyBudget: null },

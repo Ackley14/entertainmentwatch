@@ -33,6 +33,7 @@ MT.viewSearch = (function () {
   const cache = new Map();          // `${tab}\n${query}` -> rows
   let rows = [];
   let cursor = -1;
+  let lastFailed = [];
   let query = '';
   let tab = 'all';
   let touchStart = null;
@@ -167,7 +168,8 @@ MT.viewSearch = (function () {
     const signal = inflight.signal;
 
     let raw;
-    try { raw = await fetchFor(tab, q, signal); }
+    const failed = [];
+    try { raw = await fetchFor(tab, q, signal, failed); }
     catch (e) {
       if (e && e.kind === 'abort') return;
       host.innerHTML = MT.ui.errorBox('Search failed', e.message || String(e));
@@ -184,7 +186,12 @@ MT.viewSearch = (function () {
     for (const it of await MT.repo.allItems()) owned.set(it.uid, it.user.status);
 
     rows = ranked.map(r => ({ stub: r.stub, owned: owned.get(r.stub.uid) || null, score: r._score }));
-    cache.set(key, rows);
+    lastFailed = failed;
+    /* A result set that is short because a provider was unreachable must not be
+       cached as if it were the real answer — the next search for the same
+       words would then serve the gap back with no explanation. */
+    if (!failed.length) cache.set(key, rows);
+    else cache.delete(key);
     cursor = -1;
     host.classList.remove('is-stale');
     paint();
@@ -197,7 +204,7 @@ MT.viewSearch = (function () {
   }
 
   /* Each tab pays only for what it shows. */
-  async function fetchFor(which, q, signal) {
+  async function fetchFor(which, q, signal, failed) {
     const out = [];
     const wantTmdb = which !== 'game';
     const wantRawg = which === 'all' || which === 'game';
@@ -205,14 +212,14 @@ MT.viewSearch = (function () {
     const jobs = [];
     if (wantTmdb && MT.config.hasKey('tmdb')) {
       if (which === 'all' || which === 'anime') {
-        jobs.push(MT.tmdb.searchMulti(q, { signal }).catch(swallow));
+        jobs.push(MT.tmdb.searchMulti(q, { signal }).catch(swallowInto(failed, 'TMDB')));
       } else {
-        jobs.push(MT.tmdb.searchKind(which, q, { signal }).catch(swallow));
+        jobs.push(MT.tmdb.searchKind(which, q, { signal }).catch(swallowInto(failed, 'TMDB')));
       }
     }
     if (wantRawg && MT.config.hasKey('rawg')) {
       jobs.push(MT.rawg.search(q, { signal, limit: 12 })
-        .then(rs => rs.map(r => ({ __rawg: true, ...r }))).catch(swallow));
+        .then(rs => rs.map(r => ({ __rawg: true, ...r }))).catch(swallowInto(failed, 'RAWG')));
     }
     if (!jobs.length) {
       throw new MT.net.NetError('auth',
@@ -241,7 +248,22 @@ MT.viewSearch = (function () {
     return out;
   }
 
-  const swallow = e => { if (e && e.kind !== 'abort') console.warn('[search]', e.message); return []; };
+  /* A provider that is DOWN and a provider that found nothing are different
+     facts, and collapsing them is why a RAWG outage rendered as
+     "Nothing matching Elden Ring" — which is simply untrue and sends you off
+     to check your spelling.
+
+     Failures are still swallowed rather than thrown, because on the All tab a
+     dead RAWG must not take the film results with it. They are recorded so the
+     view can say what happened. */
+  function swallowInto(failed, source) {
+    return e => {
+      if (e && e.kind === 'abort') return [];
+      console.warn('[search]', source, e && e.message);
+      failed.push({ source, kind: (e && e.kind) || 'server', message: (e && e.message) || String(e) });
+      return [];
+    };
+  }
 
   /* Squash each provider's popularity onto a common 0..1 scale so it can act
      as a tiebreak without one source's larger numbers dominating. */
@@ -269,6 +291,20 @@ MT.viewSearch = (function () {
     if (src) src.textContent = tab === 'game' ? 'RAWG' : tab === 'all' ? 'TMDB · RAWG' : 'TMDB';
 
     if (!rows.length) {
+      /* Nothing found AND a provider was down: the honest answer is that we do
+         not know, not that there are no matches. */
+      if (lastFailed.length) {
+        const f = lastFailed[0];
+        const offline = lastFailed.some(x => x.kind === 'offline');
+        host.innerHTML = MT.ui.errorBox(
+          offline ? 'You appear to be offline'
+                  : `${f.source} is not answering`,
+          offline
+            ? 'Search needs a connection. Your library still works offline.'
+            : `${f.message} Nothing can be searched here until it is back — this is not a `
+              + 'statement about whether the title exists.');
+        return;
+      }
       host.innerHTML = MT.ui.emptyState({
         title: `Nothing matching “${esc(query)}”`,
         body: tab === 'all'
@@ -278,10 +314,18 @@ MT.viewSearch = (function () {
       return;
     }
 
+    /* Results, but partial: say which half is missing rather than quietly
+       showing films only when games were asked for too. */
+    const partial = lastFailed.length
+      ? `<div class="relstale">${esc(lastFailed[0].source)} is not answering, so
+           ${lastFailed[0].source === 'RAWG' ? 'games are' : 'films and television are'}
+           missing from these results.</div>`
+      : '';
+
     const mine = rows.filter(r => r.owned);
     const fresh = rows.filter(r => !r.owned);
 
-    const html =
+    const html = partial +
       (mine.length ? MT.ui.groupHead('Already in your index', mine.length) + mine.map(row).join('') : '') +
       (fresh.length ? MT.ui.groupHead('Results', fresh.length) + fresh.map(row).join('') : '');
     /* Skip the write when nothing changed — otherwise every paint re-creates

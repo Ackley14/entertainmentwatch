@@ -477,9 +477,16 @@ MT.viewReleases = (function () {
        own median so the control still works when it is the only source — the
        scores in that case ARE raw sitelink counts, so the two agree. */
     if (!st.scale && scores.length) {
-      const xs = scores.slice().sort((a, b) => a - b);
-      const mid = Math.floor(xs.length / 2);
-      st.scale = xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+      /* Zeroes are excluded, exactly as medianNotability does for RAWG. A
+         great many Wikidata game items have no Wikipedia article at all, so
+         the raw median of a window is usually 0 — which made the scale 0,
+         collapsed the floor to nothing, and left the slider doing nothing at
+         all when Wikidata was the only source. */
+      const xs = scores.filter(v => v > 0).sort((a, b) => a - b);
+      if (xs.length) {
+        const mid = Math.floor(xs.length / 2);
+        st.scale = xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+      }
     }
 
     st.wd = { count: n, only: !st.rows.some(x => x.source !== 'wikidata') };
@@ -624,7 +631,13 @@ MT.viewReleases = (function () {
                   : k === 'budget' || k === 'quota-soft' ? 'Request budget spent'
                   : k === 'auth' ? 'That API key was rejected'
                   : 'That source is not answering';
-      el.innerHTML = MT.ui.errorBox(title, st.error.message || String(st.error))
+      /* If the fallback was tried too, say so — otherwise this reads as one
+         service being down when in fact both were asked. */
+      const alsoWd = st.wd && st.wd.failed
+        ? ' Wikidata was tried as a fallback and did not answer either, so there is '
+          + 'nothing to show for this window yet. Both are usually back within the hour.'
+        : '';
+      el.innerHTML = MT.ui.errorBox(title, (st.error.message || String(st.error)) + alsoWd)
         + '<div class="relnote"><button class="btn btn--sm" type="button" data-more="1">Try again</button></div>';
       return;
     }
