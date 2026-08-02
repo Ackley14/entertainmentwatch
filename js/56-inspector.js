@@ -292,9 +292,6 @@ MT.inspector = (function () {
 
   function wire(item) {
     const host = el();
-    const close = document.getElementById('inspClose');
-    if (close) close.onclick = closeDrawer;
-
     host.onclick = async e => {
       const st = e.target.closest('[data-status]');
       const rate = e.target.closest('[data-rate]');
@@ -346,7 +343,13 @@ MT.inspector = (function () {
   }
 
   function openDrawerIfNarrow() {
-    if (window.innerWidth > 1180) return;
+    /* One source of truth for "is the inspector an overlay right now" — see
+       MT.tree.isInspOverlay. Duplicating the literal is how the two drift. */
+    if (!MT.tree.isInspOverlay()) return;
+    /* Two overlapping drawers over one scrim is an ambiguous state — tapping
+       the scrim would have to guess which one you meant. Only one at a time. */
+    const tree = document.getElementById('treePane');
+    if (tree) tree.classList.remove('open');
     el().classList.add('open');
     document.getElementById('scrim').classList.add('on');
   }
@@ -358,6 +361,12 @@ MT.inspector = (function () {
   }
 
   function init() {
+    /* Delegated, not bound in wire(): wire() only runs from paint(), so the
+       loading, error, not-found and empty renders would otherwise ship a close
+       button that does nothing — and on a phone that is the only way out. */
+    el().addEventListener('click', e => {
+      if (e.target.closest('#inspClose')) closeDrawer();
+    });
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeDrawer();
     });

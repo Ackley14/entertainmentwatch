@@ -22,6 +22,10 @@
   /* pane geometry */
   --mt-w-tree: 266px;
   --mt-w-inspector: 372px;
+  --mt-w-insp-drawer: 392px;
+  --mt-w-tree-drawer: 300px;
+  --mt-control-h: 30px;
+  --mt-fs-input: var(--mt-fs-base);
   --mt-h-bar: 44px;
   --mt-h-treerow: 25px;
   --mt-h-tablerow: 34px;

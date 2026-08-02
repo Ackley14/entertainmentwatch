@@ -170,7 +170,29 @@ MT.viewSettings = (function () {
         any machine you do not control.
       </div>
 
-      <p class="actions">
+      ${sync.unlocked ? `
+      <div class="field" style="margin-top:var(--mt-space-6)">
+        <label class="field__label">Change passphrase</label>
+        <div class="field__help">
+          Re-encrypts the whole library with a new passphrase and saves it. Every other device is
+          signed out and will need the new one. The old passphrase stops working the moment this
+          succeeds — and if it fails, nothing changes and the old one still works.
+        </div>
+        <div id="pw-open"><button class="btn btn--sm" id="pw-start">Change it</button></div>
+        <div id="pw-form" hidden>
+          <input id="pw-new" type="password" autocomplete="new-password" spellcheck="false"
+                 placeholder="New passphrase" style="margin-bottom:var(--mt-space-2)">
+          <input id="pw-new2" type="password" autocomplete="new-password" spellcheck="false"
+                 placeholder="Confirm new passphrase">
+          <div class="field__state" id="pw-msg"></div>
+          <p class="actions" style="margin-top:var(--mt-space-3)">
+            <button class="btn btn--primary btn--sm" id="pw-go">Change passphrase</button>
+            <button class="btn btn--ghost btn--sm" id="pw-cancel">Cancel</button>
+          </p>
+        </div>
+      </div>` : ''}
+
+      <p class="actions" style="margin-top:var(--mt-space-5)">
         ${sync.unlocked
           ? `<button class="btn btn--ghost" id="sync-lock">Sign out of this device</button>`
           : `<a class="btn btn--primary" href="#/unlock">Sign in</a>`}
@@ -250,6 +272,45 @@ MT.viewSettings = (function () {
       MT.cloud.clearToken();
       MT.ui.toast('Token removed from this browser');
       MT.router.resolve();
+    };
+
+    /* ── Change passphrase ─────────────────────────────────────────────── */
+    const pwStart = document.getElementById('pw-start');
+    if (pwStart) pwStart.onclick = () => {
+      document.getElementById('pw-open').hidden = true;
+      document.getElementById('pw-form').hidden = false;
+      document.getElementById('pw-new').focus();
+    };
+    const pwCancel = document.getElementById('pw-cancel');
+    if (pwCancel) pwCancel.onclick = () => {
+      document.getElementById('pw-form').hidden = true;
+      document.getElementById('pw-open').hidden = false;
+    };
+    const pwGo = document.getElementById('pw-go');
+    if (pwGo) pwGo.onclick = async () => {
+      const a = document.getElementById('pw-new').value;
+      const b = document.getElementById('pw-new2').value;
+      const msg = document.getElementById('pw-msg');
+      const say = (t, cls) => { msg.textContent = t; msg.className = 'field__state ' + (cls || ''); };
+
+      if (a !== b) return say('✕ The two passphrases do not match.', 'field__state--bad');
+      const st = MT.crypto.strength(a);
+      /* Same bar as setup: this passphrase protects a repo-write token inside a
+         world-readable file. */
+      if (st.score < 3) return say('✕ Too weak. ' + st.hint, 'field__state--bad');
+
+      pwGo.disabled = true;
+      pwGo.textContent = 'Re-encrypting…';
+      say('Deriving the new key, re-encrypting and saving…');
+      try {
+        await MT.cloud.changePassphrase(a);
+        MT.ui.toast('Passphrase changed. Other devices will need the new one.');
+        MT.router.resolve();
+      } catch (e) {
+        pwGo.disabled = false;
+        pwGo.textContent = 'Change passphrase';
+        say('✕ ' + (e.message || String(e)) + ' — your old passphrase still works.', 'field__state--bad');
+      }
     };
 
     const lockBtn = document.getElementById('sync-lock');

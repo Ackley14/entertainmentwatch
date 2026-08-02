@@ -230,6 +230,35 @@ MT.cloud = (function () {
     } catch (_) { return { conflict: false }; }
   }
 
+  /* ── Change the passphrase ─────────────────────────────────────────────
+     Order matters and is the whole safety story: derive the new key, encrypt
+     with it, PUBLISH, and only swap the live key once GitHub has accepted the
+     write. If anything fails the old passphrase still works and nothing has
+     been lost. A new salt is generated too, so the old passphrase cannot open
+     the new file.
+
+     Other devices that chose "stay signed in" hold the old derived key. Their
+     next load fails to decrypt, which drops them at the sign-in screen — which
+     is exactly what changing a passphrase should do. */
+  async function changePassphrase(newPassphrase) {
+    if (!MT.crypto.isUnlocked()) throw new Error('Sign in first.');
+    if (!hasWriteToken()) throw new Error('No GitHub token, so the re-encrypted library could not be saved.');
+
+    const doc = await MT.repo.exportAll();
+    doc.vault = { githubToken: tokenForWrite() || null };
+
+    const { key, salt } = await MT.crypto.deriveStandalone(newPassphrase);
+    const envelope = await MT.crypto.encryptWithKey(key, salt, doc);
+
+    await MT.repo.metaSet('cloud.sha', null);       // force a fresh sha read
+    await push(envelope, { message: 'MovieTrak: change passphrase' });
+
+    MT.crypto.adopt(key, salt);                     // only now
+    await MT.repo.metaSet('cloud.knownRemoteAt', envelope.updatedAt);
+    if (MT.crypto.isRemembered()) await MT.crypto.rememberOnDevice();
+    return true;
+  }
+
   /* Pull the shared library and adopt it. This is the normal path on every
      load, because the repo — not this browser — is the source of truth. */
   async function syncDown() {
@@ -297,6 +326,7 @@ MT.cloud = (function () {
   return {
     repo, setRepo, token, setToken, hasToken, clearToken, path, configured,
     tokenForWrite, setVaultToken, hasWriteToken,
-    pullEnvelope, push, publish, restore, syncDown, checkConflict, peek, status, verifyToken,
+    pullEnvelope, push, publish, restore, syncDown, checkConflict, changePassphrase,
+    peek, status, verifyToken,
   };
 })();

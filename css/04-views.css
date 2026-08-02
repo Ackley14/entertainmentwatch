@@ -184,7 +184,9 @@
   background: radial-gradient(130% 90% at 70% 0%, rgba(255, 255, 255, .28), transparent 58%);
 }
 .sheet {
-  position: relative; z-index: 1; min-height: calc(100vh - 132px);
+  position: relative; z-index: 1;
+  min-height: calc(100vh - 132px);
+  min-height: calc(100dvh - 132px);
   background: var(--mt-surface-glass);
   backdrop-filter: var(--mt-glass-blur); -webkit-backdrop-filter: var(--mt-glass-blur);
   border-top: var(--mt-rule-w) solid var(--mt-line-highlight);

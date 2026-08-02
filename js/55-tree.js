@@ -220,7 +220,17 @@ MT.tree = (function () {
     });
 
     document.getElementById('menuBtn').addEventListener('click', openDrawer);
-    document.getElementById('scrim').addEventListener('click', () => { closeDrawer(); MT.inspector.close(); });
+    document.getElementById('scrim').addEventListener('click', () => {
+      document.getElementById('treePane').classList.remove('open');
+      MT.inspector.close();
+      document.getElementById('scrim').classList.remove('on');
+    });
+
+    for (const mq of [MQ_TREE_DRAWER, MQ_INSP_DRAWER]) {
+      if (mq.addEventListener) mq.addEventListener('change', syncDrawers);
+      else if (mq.addListener) mq.addListener(syncDrawers);
+    }
+    window.addEventListener('resize', MT.util.debounce(syncDrawers, 150));
 
     MT.repo.subscribe(ev => {
       if (ev === 'item:put' || ev === 'item:delete' || ev === 'feed:change' ||
@@ -228,7 +238,45 @@ MT.tree = (function () {
     });
   }
 
+  /* ── Breakpoint state ──────────────────────────────────────────────────
+     The drawers are CSS below a width and docked above it, but the .open class
+     that drives them is set by JS. Unfolding a phone into a tablet is a RESIZE,
+     not a reload: the classes survive while the CSS giving them meaning does
+     not. Left alone, unfolding with the tree open leaves a full-screen scrim
+     that nothing can clear, and dragging a desktop window narrower slides the
+     inspector you were reading off the edge.
+
+     These queries mirror css/05-responsive.css exactly; changing one means
+     changing the other. */
+  const MQ_TREE_DRAWER = matchMedia('(max-width: 820px)');
+  const MQ_INSP_DRAWER = matchMedia('(max-width: 1180px) and (pointer: coarse)');
+
+  function syncDrawers() {
+    const tree = document.getElementById('treePane');
+    const insp = document.getElementById('inspector');
+    const scrim = document.getElementById('scrim');
+    if (!tree || !insp || !scrim) return;
+
+    if (!MQ_TREE_DRAWER.matches) tree.classList.remove('open');
+    /* The inspector is docked on tablets and foldables, so "open" is only
+       meaningful where it is actually an overlay. */
+    if (!isInspOverlay()) insp.classList.remove('open');
+    scrim.classList.toggle('on',
+      (MQ_TREE_DRAWER.matches && tree.classList.contains('open')) ||
+      (isInspOverlay() && insp.classList.contains('open')));
+  }
+
+  /* Docked wherever there is room for two panes on a touch device; an overlay
+     otherwise. Mirrors the CSS band in §6 of 05-responsive.css. */
+  function isInspOverlay() {
+    return window.innerWidth <= 1180 && !MQ_INSP_DRAWER.matches
+      ? true                                  // narrow mouse window: overlay
+      : window.innerWidth <= 820;             // touch: overlay only on phones
+  }
+
   function openDrawer() {
+    /* See MT.inspector.openDrawerIfNarrow — one drawer at a time. */
+    MT.inspector.close();
     document.getElementById('treePane').classList.add('open');
     document.getElementById('scrim').classList.add('on');
   }
@@ -239,5 +287,5 @@ MT.tree = (function () {
     }
   }
 
-  return { init, refresh, openDrawer, closeDrawer };
+  return { init, refresh, openDrawer, closeDrawer, syncDrawers, isInspOverlay };
 })();

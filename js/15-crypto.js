@@ -81,6 +81,32 @@ MT.crypto = (function () {
     return bytesToB64(salt);
   }
 
+  /* Derive a key WITHOUT installing it. Changing a passphrase has to re-encrypt
+     and successfully publish before the old key is thrown away — otherwise a
+     failed write locks the user out of their own library. */
+  async function deriveStandalone(passphrase) {
+    if (!available()) throw new Error('WebCrypto unavailable.');
+    const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+    return { key: await deriveKey(passphrase, salt), salt };
+  }
+
+  /* Encrypt with a key that is not the session key. Same envelope shape. */
+  async function encryptWithKey(key, salt, obj) {
+    const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      enc.encode(JSON.stringify(obj)));
+    return {
+      app: 'movietrak', kind: 'movietrak.encrypted', v: 1,
+      kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: ITERATIONS, salt: bytesToB64(salt) },
+      cipher: 'AES-GCM', iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)),
+      updatedAt: new Date().toISOString(),
+      counts: obj && obj.counts ? obj.counts : undefined,
+    };
+  }
+
+  /* Install a key that has already proved itself by encrypting and publishing. */
+  function adopt(key, salt) { sessionKey = key; sessionSalt = salt; }
+
   function lock() {
     sessionKey = null;
     sessionSalt = null;
@@ -190,6 +216,7 @@ MT.crypto = (function () {
 
   return {
     available, unlock, lock, isUnlocked, saltB64,
+    deriveStandalone, encryptWithKey, adopt,
     encryptJson, decryptJson, saltFromEnvelope,
     rememberOnDevice, restoreFromDevice, isRemembered,
     strength, bytesToB64, b64ToBytes, ITERATIONS,

@@ -52,6 +52,16 @@ MT.gate = (function () {
     return signIn();
   }
 
+  /* Write an error AND make sure it is on screen. The setup panel is taller
+     than a phone, so an error placed outside the current scroll position is an
+     error nobody reads — which makes the button look dead. */
+  function fail(host, title, body) {
+    host.innerHTML = MT.ui.errorBox(title, body);
+    const box = host.firstElementChild;
+    if (box) box.setAttribute('role', 'alert');
+    try { host.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+  }
+
   /* ── Returning, or a device that has never seen this library ─────────── */
   function signIn() {
     const when = remote.updatedAt ? MT.util.timeAgo(Date.parse(remote.updatedAt)) : null;
@@ -69,8 +79,9 @@ MT.gate = (function () {
 
       <div class="field">
         <label class="field__label" for="gpass">Passphrase</label>
-        <input id="gpass" type="password" autocomplete="current-password" spellcheck="false" autofocus>
-        <div class="field__state" id="gmsg"></div>
+        <input id="gpass" type="password" autocomplete="current-password" spellcheck="false"
+               autocapitalize="none" autocorrect="off" enterkeyhint="go" autofocus>
+        <div class="field__state" id="gmsg" role="alert"></div>
       </div>
 
       <label class="gate__check">
@@ -112,6 +123,7 @@ MT.gate = (function () {
         btn.textContent = 'Open library';
         msg.textContent = '✕ ' + (e.message || String(e));
         msg.className = 'field__state field__state--bad';
+        pass.focus();
         pass.select();
       }
     };
@@ -143,13 +155,15 @@ MT.gate = (function () {
         <div class="field__help">Four unrelated words beat one clever word. The encrypted file is
           publicly readable and holds your GitHub token, so length is what actually protects it.</div>
         <input id="gp1" type="password" autocomplete="new-password" spellcheck="false"
+               autocapitalize="none" autocorrect="off" enterkeyhint="next"
                placeholder="correct horse battery staple">
         <div class="field__state" id="gstr"></div>
       </div>
 
       <div class="field">
         <label class="field__label" for="gp2">Confirm</label>
-        <input id="gp2" type="password" autocomplete="new-password" spellcheck="false">
+        <input id="gp2" type="password" autocomplete="new-password" spellcheck="false"
+               autocapitalize="none" autocorrect="off" enterkeyhint="go">
         <div class="field__state" id="gmatch"></div>
       </div>
 
@@ -166,11 +180,12 @@ MT.gate = (function () {
         <div class="field__state" id="gtokmsg"></div>
       </div>
 
+      <div id="gerr" aria-live="assertive"></div>
+
       <div class="actions" style="margin-top:var(--mt-space-5)">
         <button class="btn btn--primary" id="gCreate">Create library</button>
         <button class="btn btn--ghost" id="gWorkLocal">Skip — work offline</button>
-      </div>
-      <div id="gerr" style="margin-top:var(--mt-space-4)"></div>`);
+      </div>`);
 
     const p1 = document.getElementById('gp1');
     const p2 = document.getElementById('gp2');
@@ -189,17 +204,23 @@ MT.gate = (function () {
       match.className = 'field__state ' + (ok ? 'field__state--ok' : 'field__state--bad');
     });
 
+    for (const el2 of [p1, p2, document.getElementById('gtok')]) {
+      el2.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); document.getElementById('gCreate').click(); }
+      });
+    }
+
     document.getElementById('gCreate').onclick = async () => {
       const err = document.getElementById('gerr');
       const btn = document.getElementById('gCreate');
       const tok = document.getElementById('gtok').value.trim();
       err.innerHTML = '';
 
-      if (p1.value !== p2.value) { err.innerHTML = MT.ui.errorBox('Not saved', 'The two passphrases do not match.'); return; }
+      if (p1.value !== p2.value) { fail(err, 'Not saved', 'The two passphrases do not match.'); return; }
       /* Stricter than the local-only version was: this passphrase protects a
          repo-write token inside a world-readable file. */
       if (MT.crypto.strength(p1.value).score < 3) {
-        err.innerHTML = MT.ui.errorBox('Too weak',
+        fail(err, 'Too weak',
           'Because the encrypted file is public and contains your GitHub token, this needs to be a real passphrase — four unrelated words, or twenty-plus characters.');
         return;
       }
@@ -215,7 +236,7 @@ MT.gate = (function () {
           if (!v.ok) {
             MT.cloud.setVaultToken(null);
             btn.disabled = false; btn.textContent = 'Create library';
-            err.innerHTML = MT.ui.errorBox('Token rejected', v.reason);
+            fail(err, 'Token rejected', v.reason);
             return;
           }
         }
@@ -230,7 +251,7 @@ MT.gate = (function () {
       } catch (e) {
         btn.disabled = false;
         btn.textContent = 'Create library';
-        err.innerHTML = MT.ui.errorBox('Could not create the library', e.message || String(e));
+        fail(err, 'Could not create the library', e.message || String(e));
       }
     };
     document.getElementById('gWorkLocal').onclick = workLocal;

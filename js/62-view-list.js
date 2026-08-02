@@ -53,7 +53,7 @@ MT.viewLibrary = (function () {
         </div>
         <div class="spacer"></div>
         <span class="count">${rows.length} of ${all.length}</span>
-        <select id="sortSel" class="chip" style="height:23px;padding:0 6px">
+        <select id="sortSel" class="chip" aria-label="Sort by">
           ${Object.entries(SORTS).map(([k, v]) =>
             `<option value="${k}"${k === sort ? ' selected' : ''}>${v.label}</option>`).join('')}
         </select>
