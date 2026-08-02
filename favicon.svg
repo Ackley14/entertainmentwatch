@@ -1,15 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MovieTrak">
-  <!-- The waterline: three bars, filled by how precisely a date is known.
-       It is the app's central idea and already appears on every row, so it is
-       the one mark that means something rather than being decoration.
+  <!-- A list whose first row carries a play mark.
 
-       Drawn for a 16px tab first — heavy strokes, big gaps, no fine detail.
-       Colours are literals, not tokens: an SVG loaded via <link rel="icon">
-       gets no stylesheet, so :root custom properties resolve to nothing. -->
+       Chosen over a clapperboard because the app tracks television, games and
+       anime as well as film, and over a film strip because sprocket holes turn
+       to porridge at 16px — which is the only size that matters for a tab. The
+       rows step down in width so the shape still reads as a LIST rather than
+       as a media player.
+
+       Colours are literals, not tokens: an SVG loaded through <link rel="icon">
+       gets no stylesheet, so :root custom properties resolve to nothing. The
+       triangle is painted in the background colour rather than masked out,
+       which every renderer handles identically. -->
   <rect width="64" height="64" rx="14" fill="#0B6F62"/>
   <g fill="#F4F7F6">
-    <rect x="14" y="16" width="36" height="8" rx="2"/>
-    <rect x="14" y="30" width="26" height="8" rx="2"/>
-    <rect x="14" y="44" width="14" height="8" rx="2" opacity=".45"/>
+    <rect x="11" y="12" width="42" height="16" rx="3"/>
+    <rect x="11" y="33" width="42" height="8" rx="2"/>
+    <rect x="11" y="45" width="27" height="8" rx="2"/>
   </g>
+  <path d="M26 13.8 L38 20 L26 26.2 Z" fill="#0B6F62"/>
 </svg>
