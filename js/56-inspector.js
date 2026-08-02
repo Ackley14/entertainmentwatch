@@ -182,7 +182,14 @@ MT.inspector = (function () {
      hatched void, a source that covers it but has no score yet gets a dash. */
   function ratingCells(item, r, isTv, kd) {
     const cells = [];
-    const add = (key, label, val, scale, suffix, url, absent) => {
+    /* IMDb, Rotten Tomatoes and Metacritic all arrive through OMDb, so if that
+       key is missing or rejected the honest answer is "not configured" rather
+       than a dash implying the score simply does not exist. */
+    const omdbDown = !MT.config.hasKey('omdb') ? 'No OMDb key — add one in Settings'
+                   : MT.omdb.keyRejected() ? 'OMDb rejected the key — check Settings'
+                   : null;
+
+    const add = (key, label, val, scale, suffix, url, absent, pendingNote) => {
       if (absent) {
         cells.push(`<div class="src na"><div class="sn">${label}</div><span class="void"></span>
           <div class="note">${esc(absent)}</div></div>`);
@@ -191,7 +198,7 @@ MT.inspector = (function () {
       if (!val || val.score == null) {
         cells.push(`<div class="src"><div class="sn">${label}</div>
           <div class="sv"><b class="faint">—</b></div>
-          <div class="note">No score yet</div></div>`);
+          <div class="note">${esc(pendingNote || 'No score yet')}</div></div>`);
         return;
       }
       const pct = Math.max(0, Math.min(100, (val.score / scale) * 100));
@@ -207,14 +214,14 @@ MT.inspector = (function () {
       add('rawg', 'RAWG', r.rawg, 5, '/5', r.rawg && r.rawg.url);
       add('mc', 'Metacritic', r.metacritic, 100, '/100', r.metacritic && r.metacritic.url);
     } else {
-      add('imdb', 'IMDb', r.imdb, 10, '/10', r.imdb && r.imdb.url);
+      add('imdb', 'IMDb', r.imdb, 10, '/10', r.imdb && r.imdb.url, null, omdbDown);
       add('tmdb', 'TMDB', r.tmdb, 10, '/10', r.tmdb && r.tmdb.url);
       /* OMDb has effectively no RT or Metacritic coverage for television, so
-         for TV these are shown as structurally absent rather than pending. */
+         for TV these are structurally absent rather than merely pending. */
       add('rt', 'Rotten Tomatoes', r.rottenTomatoes, 100, '%', null,
-          isTv ? 'Not rated for television' : null);
+          isTv ? 'Not rated for television' : null, omdbDown);
       add('mc', 'Metacritic', r.metacritic, 100, '/100', null,
-          isTv ? 'Not rated for television' : null);
+          isTv ? 'Not rated for television' : null, omdbDown);
       if (item.facets && item.facets.anime) add('al', 'AniList', r.anilist, 100, '%', r.anilist && r.anilist.url);
     }
     return cells.join('');
