@@ -102,16 +102,21 @@ MT.config = (function () {
    TMDB's real ceiling is ~40 req/s and it is enforced PER CLIENT IP, which we
    share with the user's own browsing — so we self-cap well below it.
    RAWG's cap is per MONTH, which is why it gets a budget rather than a rate. */
+/* Each source is throttled according to what it actually enforces — verified
+   against the providers' own pages, because the three limits are very
+   different in kind and treating them alike wastes the tight ones.
+
+   TMDB   — no request quota at all, only a rate ceiling (~40/s, per client IP).
+            Rate-limited, not budgeted.
+   OMDb   — 1,000 per DAY on the free tier, and it is the one that will
+            actually run out. Used as sparingly as possible: only when an item
+            page is opened, never on add, never during a background sweep.
+   RAWG   — "up to 20,000 requests per month" on the Free plan (rawg.io/apidocs).
+            A daily sub-cap stops one bad afternoon eating the month. */
 MT.NET_POLICY = {
-  /* TMDB has no documented daily quota, only a rate ceiling — but a runaway
-     loop with no cap is exactly how a key gets flagged for abuse, so it gets a
-     generous daily backstop that normal use will never approach. Measured
-     costs: a cold boot is 0 requests, a cached page is 0, and rebuilding the
-     recommendation slate (the single most expensive thing the app does) is
-     about 35. */
-  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: 2500, monthlyBudget: null },
-  omdb:    { rps: 4,  concurrency: 2, retries: 2, dailyBudget: 900,  monthlyBudget: null },
-  rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: 400,  monthlyBudget: 19000 },
+  tmdb:    { rps: 20, concurrency: 6, retries: 3, dailyBudget: null, monthlyBudget: null },
+  omdb:    { rps: 2,  concurrency: 1, retries: 1, dailyBudget: 250,  monthlyBudget: null },
+  rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: 600,  monthlyBudget: 19000 },
   anilist: { rps: 0.4, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
 };
 
@@ -124,7 +129,11 @@ MT.TTL = {
   details:      3 * DAY,
   person:       7 * DAY,
   providers:    3 * DAY,
-  omdb:         14 * DAY,
+  /* Long on purpose. An IMDb score moves in the third decimal place over a
+     month, and OMDb is the only genuinely scarce key — a 60-day cache means a
+     200-title library costs a couple of hundred lookups every two months
+     rather than a couple of hundred every fortnight. */
+  omdb:         60 * DAY,
   anilist:      14 * DAY,
   rawg:         7 * DAY,
   /* The rec slate is additionally invalidated whenever the library changes,

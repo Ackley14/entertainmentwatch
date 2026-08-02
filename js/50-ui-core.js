@@ -260,15 +260,25 @@ MT.ui = (function () {
       onAction: async () => { await MT.repo.deleteItem(item.uid); MT.router.resolve(); },
     });
 
-    hydrate(item.uid).catch(e => console.warn('[ui] hydrate failed', e));
+    /* Deliberately WITHOUT ratings. Adding ten titles in a row should not spend
+       ten OMDb lookups against a 1,000/day allowance for scores nobody has
+       asked to see yet — those are fetched when an item page is opened. */
+    hydrate(item.uid, { ratings: false }).catch(e => console.warn('[ui] hydrate failed', e));
     return item;
   }
 
-  /* Fill in a partial record with the full detail payload. */
-  async function hydrate(uid) {
+  /* Fill in a partial record with the full detail payload.
+     `opts.ratings` gates the scarce third-party lookups (OMDb, AniList); pass
+     it only from a view the user is actually looking at. */
+  async function hydrate(uid, opts) {
+    opts = opts || {};
+    const wantRatings = opts.ratings !== false;
     const item = await MT.repo.getItem(uid);
     if (!item) return null;
-    if (!item.meta.partial && Date.now() - item.meta.detailsFetchedAt < MT.TTL.details) return item;
+    if (!item.meta.partial && Date.now() - item.meta.detailsFetchedAt < MT.TTL.details) {
+      if (wantRatings) enrichRatings(item);
+      return item;
+    }
 
     let fresh = null;
     if (item.kind === 'game') {
@@ -284,25 +294,41 @@ MT.ui = (function () {
     await MT.repo.putItem(merged);
     MT.repo.dfObserve(merged.uid, Object.keys(merged.rec.terms || {}));
 
-    /* OMDb is best-effort and must never block: it patches in when it lands. */
-    if (merged.ids.imdb && MT.config.hasKey('omdb')) {
-      MT.omdb.byImdbId(merged.ids.imdb).then(async r => {
-        if (!r) return;
-        const cur = await MT.repo.getItem(uid);
-        if (!cur) return;
-        Object.assign(cur.ratings, r);
-        await MT.repo.putItemQuiet(cur);
-        MT.repo.emit('item:ratings', { uid });
-      }).catch(() => {});
-    }
-    if (merged.facets && merged.facets.anime) {
-      MT.anilist.enrichItem(merged).then(async changed => {
-        if (!changed) return;
-        await MT.repo.putItemQuiet(merged);
-        MT.repo.emit('item:ratings', { uid });
-      }).catch(() => {});
-    }
+    if (wantRatings) enrichRatings(merged);
     return merged;
+  }
+
+  /* The scarce lookups, fired only when something is actually on screen.
+     Both are best-effort and must never block a render: OMDb is unmaintained
+     and may simply never answer, and AniList is currently rate-limited to
+     30 requests a minute. */
+  function enrichRatings(item) {
+    const uid = item.uid;
+
+    if (item.ids.imdb && MT.config.hasKey('omdb')) {
+      const age = Date.now() - ((item.ratings && item.ratings.imdb && item.ratings.imdb.fetchedAt) || 0);
+      /* The response cache would catch a repeat anyway, but checking here
+         avoids even queueing the request. */
+      if (age > MT.TTL.omdb) {
+        MT.omdb.byImdbId(item.ids.imdb).then(async r => {
+          if (!r) return;
+          const cur = await MT.repo.getItem(uid);
+          if (!cur) return;
+          Object.assign(cur.ratings, r);
+          await MT.repo.putItemQuiet(cur);
+          MT.repo.emit('item:ratings', { uid });
+        }).catch(() => {});
+      }
+    }
+
+    if (item.facets && item.facets.anime) {
+      MT.anilist.enrichItem(item).then(async changed => {
+        if (!changed) return;
+        const cur = await MT.repo.getItem(uid);
+        if (cur) { Object.assign(cur, item); await MT.repo.putItemQuiet(cur); }
+        MT.repo.emit('item:ratings', { uid });
+      }).catch(() => {});
+    }
   }
 
   async function setStatus(uid, status) {
@@ -350,7 +376,7 @@ MT.ui = (function () {
   return {
     posterCard, resultRow, dateChip, statusPill, driftBadge, ratingTile,
     ruleHead, emptyState, errorBox, skeletonGrid, toast, banner,
-    addItem, hydrate, setStatus, installKeyboard, confirmDialog,
+    addItem, hydrate, enrichRatings, setStatus, installKeyboard, confirmDialog,
     posterUrl, statusWord, yearOf, esc,
   };
 })();

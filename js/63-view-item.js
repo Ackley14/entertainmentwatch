@@ -34,7 +34,9 @@ MT.viewItem = (function () {
     paint(view, item);
 
     if (!item._transient) {
-      MT.ui.hydrate(uid).then(fresh => {
+      /* This is the ONE place ratings are requested — the user is looking at
+         the page, so spending an OMDb lookup here is what the allowance is for. */
+      MT.ui.hydrate(uid, { ratings: true }).then(fresh => {
         if (fresh && location.hash.includes(encodeURIComponent(uid))) {
           MT.repo.getItem(uid).then(cur => cur && paint(view, cur));
         }
