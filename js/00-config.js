@@ -118,6 +118,10 @@ MT.NET_POLICY = {
   omdb:    { rps: 2,  concurrency: 1, retries: 1, dailyBudget: 250,  monthlyBudget: null },
   rawg:    { rps: 4,  concurrency: 3, retries: 2, dailyBudget: 600,  monthlyBudget: 19000 },
   anilist: { rps: 0.4, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
+  /* Wikimedia asks for modest, serial querying rather than imposing a hard
+     quota. One at a time and a slow bucket is well inside what they ask, and
+     this only fires when the Releases view is open on the games tab. */
+  wikidata: { rps: 1, concurrency: 1, retries: 2, dailyBudget: null, monthlyBudget: null },
 };
 
 /* ── Cache TTLs (ms) ──────────────────────────────────────────────────────
@@ -136,6 +140,9 @@ MT.TTL = {
   omdb:         60 * DAY,
   anilist:      14 * DAY,
   rawg:         7 * DAY,
+  /* Long, because this is the standing safety net under RAWG: a day-old list
+     of well-known upcoming games is worth far more than an empty screen. */
+  wikidata:     12 * 60 * 60 * 1000,
   /* The rec slate is additionally invalidated whenever the library changes,
      so a long TTL costs nothing in freshness — it only stops the ~35-request
      rebuild from firing on a timer while your taste has not moved. */

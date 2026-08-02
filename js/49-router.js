@@ -55,13 +55,36 @@ MT.router = (function () {
     return null;
   }
 
+  /* The app scrolls inside #viewScroll, not the window: html and body are
+     overflow:hidden so the three panes can size themselves. Anything reading
+     window.scrollY or calling window.scrollTo here is a no-op. */
+  const scroller = () => document.getElementById('viewScroll');
+
+  const routeId = (path, query) => path + '?' +
+    Object.keys(query || {}).sort().map(k => `${k}=${query[k]}`).join('&');
+
   async function resolve() {
     const { segs, query, path } = parse();
     const hit = match(segs);
     const token = ++currentToken;
 
+    /* Re-resolving the SAME screen is a refresh, not a navigation, and must
+       not throw away the reader's place. This happens more than it looks:
+       adding an item saves, a save can merge, and a merge calls resolve().
+       Without this, adding three things in a row from a long list means
+       scrolling back down twice. */
+    const el = scroller();
+    const sameRoute = current && routeId(current.path, current.query) === routeId(path, query);
+    const keepTop = sameRoute && el ? el.scrollTop : 0;
+
     const view = document.getElementById('view');
     highlightNav(segs[0] || '');
+    /* The index tree carries the real navigation, and its selection is derived
+       from the route — so it has to be re-marked here. Leaving it to the
+       tree's own refresh meant the highlight only moved when the LIBRARY
+       changed, so it sat on whatever screen you were on the last time you
+       added something. */
+    if (MT.tree && MT.tree.markRoute) MT.tree.markRoute();
 
     if (!hit) {
       view.innerHTML = MT.ui.emptyState({
@@ -82,11 +105,21 @@ MT.router = (function () {
         'This screen could not be displayed',
         (e && e.message) || String(e));
     }
-    /* Preserve scroll on back/forward, reset it on a genuinely new screen. */
-    const key = 'scroll:' + path;
-    const saved = sessionStorage.getItem(key);
-    if (saved && history.state && history.state.restore) window.scrollTo(0, +saved);
-    else window.scrollTo(0, 0);
+    /* Restoring has to survive the content briefly collapsing: a handler that
+       replaces #view empties the scroller, the browser clamps scrollTop to 0,
+       and only then are rows painted back. Setting it once after the handler
+       and once more on the next frame covers both orderings. */
+    const back = scroller();
+    if (back) {
+      if (keepTop) {
+        back.scrollTop = keepTop;
+        requestAnimationFrame(() => {
+          if (token === currentToken && back.scrollTop !== keepTop) back.scrollTop = keepTop;
+        });
+      } else {
+        back.scrollTop = 0;
+      }
+    }
   }
 
   function highlightNav(section) {
@@ -107,9 +140,12 @@ MT.router = (function () {
       void path;
       resolve();
     });
-    window.addEventListener('scroll', MT.util.debounce(() => {
-      if (current) sessionStorage.setItem('scroll:' + current.path, String(window.scrollY));
-    }, 250), { passive: true });
+    const el = scroller();
+    if (el) {
+      el.addEventListener('scroll', MT.util.debounce(() => {
+        if (current) sessionStorage.setItem('scroll:' + current.path, String(el.scrollTop));
+      }, 250), { passive: true });
+    }
     if (!location.hash) location.hash = '#/';
     resolve();
   }

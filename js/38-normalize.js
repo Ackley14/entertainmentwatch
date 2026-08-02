@@ -490,6 +490,55 @@ MT.normalize = (function () {
     };
   }
 
+  /* ── Wikidata ───────────────────────────────────────────────────────────
+     A discovery stub only. Wikidata is the standing fallback under RAWG for
+     upcoming games, so these rows exist to be looked at and added, not to be
+     a rich record — opening one hydrates it from RAWG like any other stub.
+
+     Precision comes straight from Wikidata's own timePrecision rather than
+     being inferred, so buildRelease is bypassed: it exists to GUESS precision
+     from a raw string, and guessing over a field that states the answer would
+     be strictly worse. A Wikidata date of 2027 stays a year, and never becomes
+     a fake January 1st.
+
+     `ids.steam` is the join key. Wikidata's P1733 is the same Steam appid
+     CheapShark returns and that RAWG links to, so a game found here can be
+     recognised as the same game found there. */
+  function stubFromWikidata(r) {
+    const rel = emptyRelease(r.precision === 'day' ? 'announced' : 'announced');
+    rel.precision = r.precision;
+    rel.inferred = 0;                       // stated by the source, not derived
+    rel.raw = `${r.parts.y}-${String(r.parts.m).padStart(2, '0')}-${String(r.parts.d).padStart(2, '0')}`;
+    rel.sortKey = MT.util.sortKeyOf(r.parts, r.precision);
+    rel.display = MT.util.displayRelease(r.parts, r.precision);
+    rel.confidence = CONFIDENCE[r.precision] || 0.1;
+    rel.region = MT.config.get('region') || 'US';
+    rel.type = 'game_launch';
+    rel.statusRank = 2;
+
+    return {
+      uid: uidOf('game', 'wikidata', r.qid),
+      kind: 'game',
+      facets: { anime: 0 },
+      ids: { rawg: null, rawgSlug: null, tmdb: null, imdb: null, anilist: null,
+             wikidata: r.qid, steam: r.steamAppId || null },
+      title: r.name, originalTitle: r.name, overview: '', tagline: '', homepage: '',
+      images: { posterPath: null, backdropPath: null, source: 'wikidata' },
+      genres: [], keywords: [], people: [], companies: [],
+      runtimeMin: null, countries: [], languages: [], certification: {},
+      release: rel,
+      ratings: {},
+      providers: null,
+      links: Object.assign(
+        { wikidata: `https://www.wikidata.org/wiki/${r.qid}` },
+        r.steamAppId ? { steam: `https://store.steampowered.com/app/${r.steamAppId}/` } : {}),
+      gameExtra: { platforms: r.platforms || [] },
+      rec: { fetchedAt: 0, franchiseKey: null, terms: {}, candidates: {}, seedEligible: 0 },
+      meta: { schema: 1, primarySource: 'wikidata', detailsFetchedAt: 0,
+              normalizerVersion: 1, partial: 1, manualOverrides: {} },
+    };
+  }
+
   function stubFromRawgSearch(r) {
     const release = buildRelease(r.released, { status: r.released && !r.tba ? 'released' : 'announced', tba: !!r.tba });
     return {
@@ -648,7 +697,7 @@ MT.normalize = (function () {
   return {
     uidOf, parseUid, buildRelease, emptyRelease, buildTerms,
     summarize, candidateToStub,
-    fromTmdb, stubFromTmdbSearch, fromRawg, stubFromRawgSearch,
+    fromTmdb, stubFromTmdbSearch, fromRawg, stubFromRawgSearch, stubFromWikidata,
     mergeItem, withDefaults, setPath, leanForSync, absorbSynced,
     TMDB_STATUS, STATUS_RANK,
   };

@@ -111,6 +111,8 @@ MT.viewReleases = (function () {
       scale: null,        // median notability of page 1, set once
       belowNoise: 0,      // never kept at all
       stale: null,        // { fetchedAt, reason } when served from cache
+      wd: null,           // { count, only } once the supplement has run
+      titles: new Set(),  // normalised title|year, for cross-source dedup
     };
   }
 
@@ -301,6 +303,23 @@ MT.viewReleases = (function () {
     } catch (e) {
       if (mine !== token) return;
       st.loading = false;
+
+      /* Games have a second source. Before reporting failure, ask Wikidata —
+         a list of well-known releases beats an error message. */
+      if (kind === 'game' && next === 1 && !st.wd) {
+        const l0 = document.getElementById('relList');
+        if (l0) l0.innerHTML = '';
+        await supplement(st, win, mine);
+        if (mine !== token) return;
+        if (st.wd && st.wd.count) {
+          st.page = 1;
+          st.done = true;                    // no paging without the primary
+          rebuild(st);
+          foot(st);
+          return;
+        }
+      }
+
       st.error = e;
       /* Clear the skeletons. Leaving shimmering placeholders above an error
          message reads as "still working on it" when it is not. */
@@ -344,12 +363,101 @@ MT.viewReleases = (function () {
     if (!env.results.length) st.done = true;
 
     if (st.page === 1) document.getElementById('relList').innerHTML = '';
-    if (added.length) rebuild(st);
+
+    /* Games get a second opinion. RAWG is the only source that can enumerate
+       the long tail, so it stays primary — but it goes down often, and when it
+       does the whole games tab would otherwise be empty. Wikidata holds far
+       fewer upcoming titles (~295 across a year against Steam's thousands) and
+       they are the well-known ones, which is exactly the right shape for a
+       floor: you lose the obscure end, never the whole view.
+
+       Runs once per window, after the first RAWG page, so it costs one extra
+       request and only on the games tab. */
+    if (kind === 'game' && next === 1 && !st.wd) {
+      await supplement(st, win, mine);
+    }
+
+    if (added.length || (st.wd && st.wd.count)) rebuild(st);
     foot(st);
 
     /* A page can be entirely placeholders or all below the noise floor, which
        would leave the list looking finished while more exists. */
     if (!added.length && !st.done) await loadPage(st, kind, range, win);
+  }
+
+  /* Titles Wikidata knows about that RAWG did not return — either because
+     RAWG is down, or simply because the two catalogues disagree. */
+  async function supplement(st, win, mine) {
+    const meta = {};
+    let rows;
+    try {
+      rows = await MT.wikidata.releasesBetween(
+        MT.util.skToISO(win.from), MT.util.skToISO(win.to), { limit: 120, meta });
+    } catch (e) {
+      /* A failed supplement is not a failed view. If RAWG answered, the user
+         still has a list; if it did not, its own error is the one to show. */
+      console.warn('[releases] wikidata supplement unavailable', e && e.message);
+      st.wd = { count: 0, only: !st.rows.length, failed: true };
+      return;
+    }
+    if (mine !== token) return;
+
+    const owned = new Map();
+    for (const it of await MT.repo.allItems()) owned.set(it.uid, it.user.status);
+
+    let n = 0;
+    const scores = [];
+    for (const r of rows) {
+      const stub = MT.normalize.stubFromWikidata(r);
+      if (!stub) continue;
+      if (stub.release.precision !== 'day') { st.dropped++; continue; }
+      const sk = stub.release.sortKey;
+      if (sk < win.from || sk > win.to) { st.dropped++; continue; }
+      if (st.seen.has(stub.uid)) continue;
+      /* Cross-source dedup. The uids differ by construction (game:rawg:3498 vs
+         game:wikidata:Q123), so identity has to come from the content: a Steam
+         appid where both sides have one, and normalised title plus year
+         otherwise. */
+      const key = titleKey(stub);
+      if (st.titles.has(key)) continue;
+      if (stub.ids.steam && st.steam && st.steam.has(String(stub.ids.steam))) continue;
+
+      st.seen.add(stub.uid);
+      st.titles.add(key);
+      /* Sitelinks and RAWG `added` are different scales entirely, so the raw
+         number cannot go in the same field. Rescaled onto whatever RAWG's
+         median for this window turned out to be, so one slider governs both.
+         With no RAWG data at all the median is 0 and everything is visible,
+         which is the correct behaviour when it is the only source present. */
+      const score = (st.scale || 0) > 0
+        ? (r.sitelinks / WD_MEDIAN_SITELINKS) * st.scale
+        : r.sitelinks;
+      st.rows.push({ stub, score, owned: owned.get(stub.uid) || null, source: 'wikidata' });
+      scores.push(score);
+      n++;
+    }
+
+    /* With RAWG down there was never a page 1 to take a median from, so the
+       floor stayed at zero and the slider did nothing. Fall back to Wikidata's
+       own median so the control still works when it is the only source — the
+       scores in that case ARE raw sitelink counts, so the two agree. */
+    if (!st.scale && scores.length) {
+      const xs = scores.slice().sort((a, b) => a - b);
+      const mid = Math.floor(xs.length / 2);
+      st.scale = xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+    }
+
+    st.wd = { count: n, only: !st.rows.some(x => x.source !== 'wikidata') };
+  }
+
+  /* Measured across a live sample: Hades 30, Pentiment 15, Sir Brante 4,
+     Peglin 3. A median of about 4 is what an ordinary listed game scores, so
+     that is the value mapped onto RAWG's own median. */
+  const WD_MEDIAN_SITELINKS = 4;
+
+  function titleKey(stub) {
+    const p = MT.util.sortKeyToParts(stub.release.sortKey);
+    return `${MT.util.normalizeTitle(stub.title)}|${p ? p.y : '?'}`;
   }
 
   function fetchPage(kind, win, page, meta) {
@@ -403,7 +511,12 @@ MT.viewReleases = (function () {
       if (sk < win.from || sk > win.to) { st.dropped++; continue; }
 
       st.seen.add(stub.uid);
-      const row = { stub, score, owned: owned.get(stub.uid) || null };
+      st.titles.add(titleKey(stub));
+      if (stub.ids && stub.ids.steam) {
+        st.steam = st.steam || new Set();
+        st.steam.add(String(stub.ids.steam));
+      }
+      const row = { stub, score, owned: owned.get(stub.uid) || null, source: 'rawg' };
       st.rows.push(row);
       added.push(row);
     }
@@ -505,6 +618,9 @@ MT.viewReleases = (function () {
     if (st.stale) {
       bits.push(`showing a saved copy from ${MT.util.timeAgo(st.stale.fetchedAt)}`);
     }
+    if (st.wd && st.wd.count) {
+      bits.push(`${st.wd.count} from Wikidata`);
+    }
     bits.push(filterText
       ? `${shown} of ${st.rows.length} loaded match “${esc(filterText)}”`
       : MT.util.pluralize(shown, 'release'));
@@ -527,10 +643,15 @@ MT.viewReleases = (function () {
       action = '<div class="relnote muted">That is everything with a confirmed date in this window.</div>';
     }
 
-    const banner = st.stale
-      ? `<div class="relstale">This list could not be refreshed, so it is the last copy saved
-           ${esc(MT.util.timeAgo(st.stale.fetchedAt))}. Newly announced titles may be missing.</div>`
-      : '';
+    /* When RAWG is the missing half, say so plainly — the gap is real and
+       specific (obscure and unannounced titles), not a general failure. */
+    const banner = st.wd && st.wd.only && st.wd.count
+      ? `<div class="relstale">RAWG is not answering, so this is the Wikidata list: well-known
+           releases only. Smaller and newly announced games are missing until it is back.</div>`
+      : st.stale
+        ? `<div class="relstale">This list could not be refreshed, so it is the last copy saved
+             ${esc(MT.util.timeAgo(st.stale.fetchedAt))}. Newly announced titles may be missing.</div>`
+        : '';
     el.innerHTML = `${banner}<div class="relcount muted">${bits.join(' · ')}</div>${action}`;
   }
 

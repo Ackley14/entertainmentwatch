@@ -14,6 +14,7 @@ MT.tree = (function () {
   let open = load();
   let nodes = [];          // flat, in visual order — the keyboard's world
   let focusIdx = -1;
+  let leafIdx = 0;
   let filterText = '';
 
   function load() {
@@ -95,6 +96,11 @@ MT.tree = (function () {
 
   function render(sections, activeRoute) {
     nodes = [];
+    leafIdx = 0;
+    /* Reset every render. Left stale, a screen with no tree entry keeps the
+       previous screen's highlight, so standing on Releases lit up whatever was
+       selected before it. */
+    focusIdx = -1;
     let html = '';
     for (const sec of sections) {
       if (!matches(sec)) continue;
@@ -112,7 +118,6 @@ MT.tree = (function () {
   function renderNode(node, activeRoute) {
     if (!matches(node)) return '';
     const sel = node.route && routeMatches(node.route, activeRoute);
-    if (sel) focusIdx = nodes.length;
     nodes.push(node);
 
     const lead = node.dot ? `<span class="dot c-${esc(node.dot)}${node.fill ? ' fill' : ''}"></span>`
@@ -129,6 +134,11 @@ MT.tree = (function () {
         <div class="kids">${node.children.map(c => renderNode(c, activeRoute)).join('')}</div>
       </div>`;
     }
+    /* paintFocus indexes `#tree a.row`, which is LEAF anchors only, so the
+       counter has to skip groups. Using nodes.length here counted the group
+       rows too and put the highlight several places off. */
+    if (sel) focusIdx = leafIdx;
+    leafIdx++;
     return `<a class="row${sel ? ' is-sel' : ''}" href="${esc(node.route)}" data-node="${esc(node.id)}">
       ${NOCARET}${lead}<span class="lbl">${esc(node.label)}</span>${trail}
     </a>`;
@@ -137,13 +147,26 @@ MT.tree = (function () {
   /* A node is selected when its route's path and its own query pairs are all
      present in the current hash. That way "#/library?status=want&kind=tv"
      still highlights Want, and plain "#/library" highlights All titles. */
+  /* Which query parameters make an unparameterised node NOT match. These are
+     the library's own filters: "All titles" (#/library) must not stay lit when
+     you are looking at #/library?kind=anime.
+
+     They are scoped to /library on purpose. Releases carries kind and range
+     too, and treating those as filters meant #/releases?kind=game matched no
+     tree entry at all — so nothing was selected, and the stale focus index
+     lit up Anime instead. */
+  const FILTER_PARAMS = { '/library': ['status', 'kind', 'tag', 'undated'] };
+
   function routeMatches(route, active) {
     const [rp, rq] = route.replace('#', '').split('?');
     const [ap, aq] = (active || '').replace('#', '').split('?');
     if (rp !== ap) return false;
     const A = new URLSearchParams(aq || '');
     const R = new URLSearchParams(rq || '');
-    if (![...R].length) return ![...A].some(([k]) => k === 'status' || k === 'kind' || k === 'tag' || k === 'undated');
+    if (![...R].length) {
+      const filters = FILTER_PARAMS[rp] || [];
+      return !filters.some(k => A.has(k));
+    }
     for (const [k, v] of R) if (A.get(k) !== v) return false;
     return true;
   }
@@ -153,6 +176,27 @@ MT.tree = (function () {
     if (!host) return;
     const sections = await build();
     host.innerHTML = render(sections, location.hash || '#/library');
+    paintFocus();
+  }
+
+  /* Re-mark the selection without rebuilding the tree.
+
+     The tree used to work out `is-sel` only inside render(), and render() only
+     runs when the LIBRARY changes — so navigating never updated it. The
+     highlight you saw was wherever you happened to be standing the last time
+     you added something, which is why Releases showed Anime as selected.
+
+     This is a class toggle over existing anchors: no counts recomputed, no
+     DOM rebuilt, safe to call on every route change. */
+  function markRoute(activeRoute) {
+    const active = activeRoute || location.hash || '#/library';
+    const rows = [...document.querySelectorAll('#tree a.row')];
+    focusIdx = -1;
+    rows.forEach((a, i) => {
+      const sel = routeMatches(a.getAttribute('href') || '', active);
+      a.classList.toggle('is-sel', sel);
+      if (sel) focusIdx = i;
+    });
     paintFocus();
   }
 
@@ -299,5 +343,5 @@ MT.tree = (function () {
     }
   }
 
-  return { init, refresh, openDrawer, closeDrawer, syncDrawers, isInspOverlay };
+  return { init, refresh, markRoute, openDrawer, closeDrawer, syncDrawers, isInspOverlay };
 })();
