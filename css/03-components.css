@@ -393,3 +393,19 @@ td.num { text-align: right; }
   font-size: var(--mt-fs-base);
 }
 .banner button { margin-left: auto; color: var(--mt-amber-text); text-decoration: underline; }
+
+/* A section divider inside the table. Sticky like the day headings in
+   Releases, so you always know which group you are looking at. */
+/* Deliberately NOT sticky. The thead already sticks at top:0 and its height
+   changes with theme and pointer type, so pinning these below it would mean
+   guessing an offset that drifts. With at most four sections there is nothing
+   to gain. */
+tbody tr.grouprow td {
+  height: auto; padding: 7px var(--mt-space-4);
+  background: var(--mt-surface-canvas);
+  border-bottom: var(--mt-rule-w) solid var(--mt-line-rule);
+  font-size: var(--mt-fs-micro); letter-spacing: var(--mt-tracking-caps);
+  text-transform: uppercase; color: var(--mt-text-muted); font-weight: 600;
+}
+tbody tr.grouprow { cursor: default; }
+tbody tr.grouprow:hover td { background: var(--mt-surface-canvas); }

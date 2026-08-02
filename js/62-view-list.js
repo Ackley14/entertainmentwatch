@@ -6,11 +6,24 @@ MT.viewLibrary = (function () {
   const esc = MT.util.escapeHtml;
   const MODE_KEY = 'mt.library.mode';
 
+  /* The order types are shown in. Matches the filter chips and the index tree,
+     so the same four things appear in the same sequence wherever you look. */
+  const KIND_ORDER = ['film', 'tv', 'game', 'anime'];
+  const kindRank = it => {
+    const i = KIND_ORDER.indexOf(MT.ui.kindOf(it));
+    return i < 0 ? KIND_ORDER.length : i;
+  };
+  const byTitle = (a, b) => (a.sortTitle || '').localeCompare(b.sortTitle || '');
+
   const SORTS = {
     added:   { label: 'Recently added', fn: (a, b) => (b.user.addedAt || 0) - (a.user.addedAt || 0) },
     release: { label: 'Release date',   fn: (a, b) => a.release.sortKey - b.release.sortKey },
-    title:   { label: 'Title',          fn: (a, b) => (a.sortTitle || '').localeCompare(b.sortTitle || '') },
+    title:   { label: 'Title',          fn: byTitle },
     rating:  { label: 'Your rating',    fn: (a, b) => (b.user.rating || -1) - (a.user.rating || -1) },
+    /* Sorting by type without also DRAWING the divisions just produces a list
+       that looks arbitrarily ordered, so this sort is the one that groups. */
+    type:    { label: 'Type', group: true,
+               fn: (a, b) => (kindRank(a) - kindRank(b)) || byTitle(a, b) },
   };
 
   const mode = () => { try { return localStorage.getItem(MODE_KEY) || 'table'; } catch (_) { return 'table'; } };
@@ -82,13 +95,23 @@ MT.viewLibrary = (function () {
         </select>
       </div>
       ${rows.length
-        ? (mode() === 'grid' ? MT.ui.grid(rows, sel) : MT.ui.table(rows, sel))
+        ? (mode() === 'grid'
+            ? MT.ui.grid(rows, sel, groupOpts(sort))
+            : MT.ui.table(rows, sel, groupOpts(sort)))
         : MT.ui.emptyState({
             title: 'Nothing here',
             body: 'No titles match these filters. Try a different status or type in the index on the left.',
           })}`;
 
     wire(view, q, sort);
+  }
+
+  /* Plural headings, because a section is a set: "Films", not "Film". */
+  const GROUP_LABEL = { film: 'Films', tv: 'Television', game: 'Games', anime: 'Anime' };
+
+  function groupOpts(sort) {
+    if (!(SORTS[sort] || {}).group) return null;
+    return { groupBy: it => GROUP_LABEL[MT.ui.kindOf(it)] || 'Other' };
   }
 
   function wire(view, q, sort) {

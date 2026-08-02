@@ -243,12 +243,31 @@ MT.ui = (function () {
     { key: 'added', label: 'Added', num: true, drop: true },
   ];
 
-  function table(items, selectedUid) {
+  /* `opts.groupBy` returns a heading for an item, or null for none. Rows are
+     emitted in the order given — grouping does NOT re-sort, it only inserts a
+     divider wherever the heading changes, so the caller stays in charge of
+     ordering and a mis-sorted list produces visibly repeated headings rather
+     than a silently wrong one. */
+  function table(items, selectedUid, opts) {
     if (!items.length) return '';
+    opts = opts || {};
+    const span = COLUMNS.length;
+    let last = null;
+    let body = '';
+    for (const it of items) {
+      if (opts.groupBy) {
+        const g = opts.groupBy(it);
+        if (g && g !== last) {
+          body += `<tr class="grouprow"><td colspan="${span}">${esc(g)}</td></tr>`;
+          last = g;
+        }
+      }
+      body += tableRow(it, it.uid === selectedUid);
+    }
     return `<div class="tblwrap"><table>
       <thead><tr>${COLUMNS.map(c =>
         `<th data-col="${c.key}"${c.num ? ' class="num"' : ''}${c.drop ? ' data-drop' : ''}>${c.label}</th>`).join('')}</tr></thead>
-      <tbody>${items.map(it => tableRow(it, it.uid === selectedUid)).join('')}</tbody>
+      <tbody>${body}</tbody>
     </table></div>`;
   }
 
@@ -368,13 +387,37 @@ MT.ui = (function () {
     });
   }
 
-  function grid(items, selectedUid) {
-    return `<div class="grid">${items.map(it => `
+  function grid(items, selectedUid, opts) {
+    opts = opts || {};
+    const card = it => `
       <div class="card${it.uid === selectedUid ? ' is-sel' : ''}" data-uid="${esc(it.uid)}">
         ${poster(it)}
         <div class="ct">${esc(it.title)}</div>
         <div class="cs">${waterline(it.release)}<span class="mono">${esc(shortWhen(it.release))}</span></div>
-      </div>`).join('')}</div>`;
+      </div>`;
+
+    if (!opts.groupBy) return `<div class="grid">${items.map(card).join('')}</div>`;
+
+    /* Posters need a grid per group; one grid with headings inside it would
+       put them in a cell rather than across the row. */
+    let out = '';
+    let last = null;
+    let open = false;
+    for (const it of items) {
+      const g = opts.groupBy(it);
+      if (g && g !== last) {
+        if (open) out += '</div>';
+        out += groupHead(g);
+        out += '<div class="grid">';
+        open = true;
+        last = g;
+      } else if (!open) {
+        out += '<div class="grid">';
+        open = true;
+      }
+      out += card(it);
+    }
+    return out + (open ? '</div>' : '');
   }
 
   function shortWhen(release) {
