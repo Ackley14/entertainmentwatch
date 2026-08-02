@@ -145,9 +145,15 @@ MT.ui = (function () {
   }
 
   /* ══ TABLE + GRID ═══════════════════════════════════════════════════════ */
+  /* `drop` marks a column the phone layout hides (see 05-responsive.css).
+     Type is deliberately NOT one of them: stripped of it, a narrow row is a
+     bare title with no clue whether it is a film, a season of television or a
+     game — which is the first thing you want when scanning a mixed library.
+     It costs one short tag, and as its own column the kinds line up vertically
+     and can be read down the page as a stripe. */
   const COLUMNS = [
     { key: 'title', label: 'Title' },
-    { key: 'type', label: 'Type', drop: true },
+    { key: 'type', label: 'Type' },
     { key: 'status', label: 'Status', drop: true },
     { key: 'release', label: 'Release' },
     { key: 'progress', label: 'Progress', drop: true },
@@ -159,7 +165,7 @@ MT.ui = (function () {
     if (!items.length) return '';
     return `<div class="tblwrap"><table>
       <thead><tr>${COLUMNS.map(c =>
-        `<th${c.num ? ' class="num"' : ''}${c.drop ? ' data-drop' : ''}>${c.label}</th>`).join('')}</tr></thead>
+        `<th data-col="${c.key}"${c.num ? ' class="num"' : ''}${c.drop ? ' data-drop' : ''}>${c.label}</th>`).join('')}</tr></thead>
       <tbody>${items.map(it => tableRow(it, it.uid === selectedUid)).join('')}</tbody>
     </table></div>`;
   }
@@ -168,13 +174,13 @@ MT.ui = (function () {
     const u = item.user || {};
     const added = u.addedAt ? new Date(u.addedAt) : null;
     return `<tr data-uid="${esc(item.uid)}"${selected ? ' class="is-sel"' : ''}>
-      <td><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span></td>
-      <td data-drop>${kindTag(item)}</td>
-      <td data-drop>${statusCell(item)}</td>
-      <td>${dateCell(item.release)}</td>
-      <td data-drop class="muted">${esc(progressText(item))}</td>
-      <td class="num mono">${u.rating != null ? esc(u.rating) + '<span class="faint">/10</span>' : '<span class="faint">·&nbsp;·</span>'}</td>
-      <td data-drop class="num mono faint">${added ? esc(added.toISOString().slice(0, 10)) : ''}</td>
+      <td data-col="title"><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span></td>
+      <td data-col="type">${kindTag(item)}</td>
+      <td data-col="status" data-drop>${statusCell(item)}</td>
+      <td data-col="release">${dateCell(item.release)}</td>
+      <td data-col="progress" data-drop class="muted">${esc(progressText(item))}</td>
+      <td data-col="rating" class="num mono">${u.rating != null ? esc(u.rating) + '<span class="faint">/10</span>' : '<span class="faint">·&nbsp;·</span>'}</td>
+      <td data-col="added" data-drop class="num mono faint">${added ? esc(added.toISOString().slice(0, 10)) : ''}</td>
     </tr>`;
   }
 

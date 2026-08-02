@@ -155,6 +155,31 @@
   .title-cell .chipart { display: none; }
   tbody td, thead th { padding-left: var(--mt-space-3); padding-right: var(--mt-space-3); }
   .searchbox { padding: var(--mt-space-5) var(--mt-space-5) var(--mt-space-4); }
+
+  /* An auto-layout table hands its leftover width out in PROPORTION to how
+     wide each column's content already is, so the widest cell wins the surplus
+     — and the release cell, being ten monospace slots plus a waterline, was
+     winning it every time. Measured at 320px: release took 138px and the title
+     was left with 57. The one column with something worth reading was the one
+     being starved.
+
+     Pinning every fixed-content column to `width: 1%` (the table idiom for
+     "shrink to your content" — 0 reads as a hint a browser may ignore) makes
+     the title the only column that can grow, so the surplus lands there
+     instead. Same 320px screen: the title goes 57px → 102px. */
+  thead th[data-col="type"],    tbody td[data-col="type"],
+  thead th[data-col="release"], tbody td[data-col="release"],
+  thead th[data-col="rating"],  tbody td[data-col="rating"] {
+    width: 1%; white-space: nowrap;
+  }
+  thead th[data-col="type"], tbody td[data-col="type"] { padding-right: var(--mt-space-2); }
+  /* Required, not cosmetic. `.title-cell .t` is `white-space: nowrap`, so the
+     cell's min-content width is the WHOLE title — and an auto-layout table
+     cannot size a column below min-content. Without this the table quietly
+     grows past the screen and scrolls sideways inside .tblwrap instead of
+     ellipsizing. `max-width: 0` is what lets the cell collapse and the
+     ellipsis engage. */
+  tbody td[data-col="title"] { max-width: 0; }
 }
 
 @media (max-width: 460px) {
