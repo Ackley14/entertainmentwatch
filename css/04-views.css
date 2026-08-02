@@ -490,3 +490,33 @@ tbody td[data-col="title"] { position: relative; }
   font-size: var(--mt-fs-mini); color: var(--mt-text-muted);
 }
 #relSentinel { height: 1px; }
+
+/* The notability slider. Its own row: at 320px a label, two end captions and a
+   track will not share a line with anything else. */
+.notabar {
+  display: flex; align-items: center; gap: var(--mt-space-3);
+  padding: var(--mt-space-3) var(--mt-space-6);
+  border-bottom: var(--mt-rule-w) solid var(--mt-line-hairline);
+}
+.notabar label {
+  font-size: var(--mt-fs-micro); letter-spacing: var(--mt-tracking-caps);
+  text-transform: uppercase; color: var(--mt-text-muted); font-weight: 600;
+  flex: 0 0 auto;
+}
+.notaend { font-size: var(--mt-fs-micro); flex: 0 0 auto; white-space: nowrap; }
+.notabar input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; min-width: 60px; height: 4px;
+  border-radius: var(--mt-radius-pill);
+  background: var(--mt-line-hairline); outline: none;
+}
+.notabar input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--mt-teal); cursor: pointer;
+  border: 2px solid var(--mt-surface-canvas);
+}
+.notabar input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--mt-surface-canvas);
+  background: var(--mt-teal); cursor: pointer;
+}

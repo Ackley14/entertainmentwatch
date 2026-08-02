@@ -341,3 +341,15 @@ select.chip { padding: 0 var(--mt-space-3); appearance: none; }
      so none is hidden off the edge. */
   .toolbar--sub .chips { gap: var(--mt-space-1) 5px; }
 }
+
+@media (pointer: coarse) {
+  /* Same trick as the progress sliders: give the track the tap height rather
+     than inflating the thumb. */
+  .notabar input[type="range"] { height: 6px; padding: 19px 0; background-clip: content-box; }
+}
+@media (max-width: 560px) {
+  .notabar { padding-left: var(--mt-space-5); padding-right: var(--mt-space-5); gap: var(--mt-space-2); }
+  /* The word "Notability" plus both captions plus a usable track do not fit on
+     a 320px line. The captions carry the meaning, so the label goes. */
+  .notabar label { display: none; }
+}
