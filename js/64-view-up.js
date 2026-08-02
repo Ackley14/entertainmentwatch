@@ -1,10 +1,11 @@
 /* ══════════════════════════════════════════════════════════════════════════
    #/up — Coming Up.
 
-   The screen where date precision has to be honest. A title known only to
-   "July 2027" is NOT placed on July 1st; it sits in a separate strip above the
-   dated rows for that month. A title with no date at all gets its own bucket
-   at the end rather than being hidden or faked.
+   One shared timeline where PRECISION BECOMES WIDTH: a known day is a 3px
+   pin, a month is a month wide, a year fills the year, and TBA has no
+   position on the axis at all. Because every row is drawn against the same
+   window, uncertainty is comparable at a glance — you can see that one title
+   is pinned and another could land anywhere in a quarter.
    ══════════════════════════════════════════════════════════════════════════ */
 
 MT.viewUp = (function () {
@@ -12,151 +13,129 @@ MT.viewUp = (function () {
 
   async function render(params, query) {
     const view = document.getElementById('view');
-    const kind = (query && query.kind) || 'all';
+    const q = query || {};
     const all = await MT.repo.allItems();
-
-    let rows = all.filter(it => it.user.status !== 'dropped');
-    if (kind === 'anime') rows = rows.filter(it => it.facets && it.facets.anime);
-    else if (kind !== 'all') rows = rows.filter(it => it.kind === kind);
-
     const today = MT.util.todaySortKey();
-    const dated = rows.filter(it => it.release.sortKey < MT.util.SK_UNKNOWN && it.release.sortKey >= today);
-    const undated = rows.filter(it => it.release.sortKey >= MT.util.SK_UNKNOWN);
-    const past = rows.filter(it => it.release.sortKey < today && it.user.status === 'want')
-      .sort((a, b) => b.release.sortKey - a.release.sortKey).slice(0, 12);
 
-    dated.sort((a, b) => a.release.sortKey - b.release.sortKey);
+    let rows = all.filter(i => i.user.status !== 'dropped' && i.user.status !== 'watched');
+    if (q.kind === 'anime') rows = rows.filter(i => i.facets && i.facets.anime);
+    else if (q.kind) rows = rows.filter(i => i.kind === q.kind);
 
-    /* Group by YEAR first, then by precision within the year.
+    const undated = rows.filter(i => i.release.sortKey >= MT.util.SK_UNKNOWN);
+    const dated = rows.filter(i => i.release.sortKey < MT.util.SK_UNKNOWN && i.release.sortKey >= today)
+      .sort((a, b) => a.release.sortKey - b.release.sortKey);
 
-       Doing it by month would be wrong: a year-precision item is anchored to
-       January 1st purely so it sorts sensibly, and grouping on that anchor
-       would file "sometime in 2027" under a January heading — inventing a
-       month the source never gave us. Each precision gets its own bucket and
-       its own honest label. */
-    const years = new Map();
-    for (const it of dated) {
-      const p = MT.util.sortKeyToParts(it.release.sortKey);
-      if (!years.has(p.y)) years.set(p.y, { year: [], quarters: new Map(), months: new Map() });
-      const y = years.get(p.y);
-      const prec = it.release.precision;
-      if (prec === 'year') y.year.push(it);
-      else if (prec === 'quarter') {
-        const q = MT.util.quarterOf(p.m);
-        if (!y.quarters.has(q)) y.quarters.set(q, []);
-        y.quarters.get(q).push(it);
-      } else {
-        if (!y.months.has(p.m)) y.months.set(p.m, { precise: [], vague: [] });
-        y.months.get(p.m)[prec === 'day' ? 'precise' : 'vague'].push(it);
-      }
-    }
+    const showing = q.undated ? undated : dated;
+    MT.ui.crumb(['Schedule', q.undated ? 'No date set' : 'Coming up']);
+    MT.ui.paneActions(`
+      <div class="seg">
+        <button type="button" data-tab="dated" aria-pressed="${!q.undated}">Dated <span class="count">${dated.length}</span></button>
+        <button type="button" data-tab="undated" aria-pressed="${!!q.undated}">No date <span class="count">${undated.length}</span></button>
+      </div>`);
+
+    /* The window is anchored on today and always spans at least two years, so
+       bands stay comparable between visits. */
+    const startY = MT.util.sortKeyToParts(today).y;
+    const endY = Math.max(startY + 2, ...dated.map(i => MT.util.sortKeyToParts(i.release.sortKey).y));
+    const span = { from: startY * 10000 + 101, to: endY * 10000 + 1231, startY, endY };
 
     view.innerHTML = `
-      <div class="pagehead">
-        <div>
-          <h1>Coming Up</h1>
-          <div class="pagehead__sub">${MT.util.pluralize(dated.length, 'dated title')}
-            ${undated.length ? ` · ${undated.length} without a date` : ''}</div>
-        </div>
+      <div class="legend">
+        <div><span class="band day" style="position:static;display:inline-block;width:3px"></span> <b>Exact day</b> — pinned</div>
+        <div><span class="band month" style="position:static;display:inline-block;width:22px"></span> <b>Month only</b> — lands somewhere in the band</div>
+        <div><span class="band year" style="position:static;display:inline-block;width:40px"></span> <b>Year only</b></div>
+        <div><span class="band tba" style="position:static;display:inline-block;width:40px"></span> <b>TBA</b> — no position on the axis</div>
       </div>
+      ${showing.length
+        ? showing.map(it => row(it, span)).join('')
+        : MT.ui.emptyState({
+            title: q.undated ? 'Nothing undated' : 'Nothing on the horizon',
+            body: q.undated
+              ? 'Titles with no announced date at all will collect here.'
+              : 'Add something unreleased and it will appear here — including titles that only have a year.',
+          })}
+      ${!q.undated && undated.length ? `
+        ${MT.ui.groupHead('No date set', undated.length)}
+        <p class="muted" style="padding:0 var(--mt-space-6) var(--mt-space-4);font-size:var(--mt-fs-sm);max-width:64ch">
+          Announced, rumoured or simply undated. Nothing that has not been announced anywhere can be tracked by
+          any source — <a href="#/people" style="text-decoration:underline">following the people and studios</a>
+          behind them is how you hear first.
+        </p>
+        ${undated.map(it => row(it, span)).join('')}` : ''}`;
 
-      <div class="toolbar">
-        <div class="chiprow">
-          ${[['all', 'Everything'], ['movie', 'Films'], ['tv', 'TV'], ['game', 'Games'], ['anime', 'Anime']]
-            .map(([k, l]) => `<button class="chip" data-kind="${k}" aria-pressed="${k === kind}">${l}</button>`).join('')}
-        </div>
-      </div>
-
-      ${dated.length || undated.length ? '' : MT.ui.emptyState({
-        title: 'Nothing on the horizon',
-        body: 'Add something unreleased and it will show up here — including titles that only have a year, or no date at all.',
-      })}
-
-      <div class="timeline">
-        ${[...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, g]) => yearBlock(y, g)).join('')}
-      </div>
-
-      ${undated.length ? `
-        <section class="section" style="margin-top:var(--s-7)">
-          ${MT.ui.ruleHead('No date set', `${undated.length}`)}
-          <p class="muted" style="font-size:var(--t-sm);margin-bottom:var(--s-4);max-width:60ch">
-            Announced, rumoured, or simply undated. Nothing that has not been announced anywhere can be
-            tracked by any source — following the people and studios behind them is how you hear first.
-          </p>
-          <div class="grid">${undated.map(it => MT.ui.posterCard(it, { hideStatus: true })).join('')}</div>
-        </section>` : ''}
-
-      ${past.length ? `
-        <section class="section" style="margin-top:var(--s-7)">
-          ${MT.ui.ruleHead('Already out, still on your list', `${past.length}`)}
-          <div class="grid">${past.map(it => MT.ui.posterCard(it, { hideStatus: true })).join('')}</div>
-        </section>` : ''}`;
-
-    view.querySelector('.toolbar').addEventListener('click', e => {
-      const k = e.target.closest('[data-kind]');
-      if (k) MT.router.go('#/up' + (k.dataset.kind === 'all' ? '' : '?kind=' + k.dataset.kind));
+    view.addEventListener('click', e => {
+      const r = e.target.closest('[data-uid]');
+      if (r) MT.inspector.show(r.dataset.uid);
+    });
+    const pa = document.getElementById('paneActions');
+    if (pa) pa.addEventListener('click', e => {
+      const b = e.target.closest('[data-tab]');
+      if (b) MT.router.go('#/up' + (b.dataset.tab === 'undated' ? '?undated=1' : ''));
     });
   }
 
-  function yearBlock(y, g) {
-    const total = g.year.length
-      + [...g.quarters.values()].reduce((n, a) => n + a.length, 0)
-      + [...g.months.values()].reduce((n, b) => n + b.precise.length + b.vague.length, 0);
-
-    /* Vaguest first: a title known only to the year belongs above the months,
-       because it could land in any of them. */
-    let html = `
-      <div class="timeline__month">
-        <h2>${y}</h2>
-        <span class="num">${total}</span>
+  function row(it, span) {
+    const rel = it.release;
+    return `<div class="cu" data-uid="${esc(it.uid)}">
+      ${MT.ui.poster(it, { size: MT.IMG.poster.sm })}
+      <div>
+        <div class="cu-t">${esc(it.title)}</div>
+        <div class="cu-m">
+          ${MT.ui.kindTag(it)}${MT.ui.precisionTag(rel)}
+          <span class="mono faint" style="font-size:var(--mt-fs-mini)">${esc(MT.alerts.prettyType(rel.type))}</span>
+          ${MT.ui.driftBadge(rel)}
+        </div>
       </div>
-      ${g.year.length ? strip(`Sometime in ${y} — no month announced`, g.year) : ''}
-      ${[...g.quarters.entries()].sort((a, b) => a[0] - b[0])
-         .map(([q, list]) => strip(`Q${q} ${y} — no month announced`, list)).join('')}`;
-
-    for (const [m, bucket] of [...g.months.entries()].sort((a, b) => a[0] - b[0])) {
-      const name = MT.util.MONTHS[m - 1];
-      html += `<div class="rulehead" style="margin-top:var(--s-4)">
-                 <span class="rulehead__label">${esc(name)}</span>
-                 <span class="rulehead__rule"></span>
-                 <span class="rulehead__aside">${bucket.precise.length + bucket.vague.length}</span>
-               </div>`;
-      if (bucket.vague.length) html += strip(`Sometime in ${name} — no day announced`, bucket.vague);
-      if (bucket.precise.length) html += `<div class="marquee">${bucket.precise.map(row).join('')}</div>`;
-    }
-    return html;
-  }
-
-  function strip(label, list) {
-    return `<div class="vaguestrip">
-      <div class="vaguestrip__label">${esc(label)}</div>
-      <div class="marquee">${list.map(row).join('')}</div>
+      <div class="cu-r">
+        <div class="cu-when">${MT.ui.whenText(rel)}</div>
+        <div class="cu-when sub">${MT.ui.dateField(rel)}</div>
+      </div>
+      ${track(rel, span)}
     </div>`;
   }
 
-  function row(it) {
-    const rel = it.release;
-    const days = MT.util.daysUntil(rel.sortKey);
-    /* A countdown against a month- or year-precise date would be inventing
-       precision the source never gave us, so vaguer rows get the precision
-       label instead of a number of days. */
-    const when = rel.precision === 'day'
-      ? `${MT.util.shortDate(rel.sortKey)}<small>${esc(MT.util.relativeDays(days))}</small>`
-      : `${esc(rel.display)}<small>${esc(rel.precision)} only</small>`;
-    return `<a class="marquee__row" href="#/item/${encodeURIComponent(it.uid)}">
-      <div class="marquee__when">${when}</div>
-      <div>
-        <div class="marquee__title">${esc(it.title)}</div>
-        <div class="marquee__meta">${esc(MT.alerts.prettyType(rel.type))} · ${esc(kindWord(it))}
-          ${MT.ui.driftBadge(rel)}</div>
-      </div>
-      <div>${MT.ui.statusPill(rel)}</div>
-    </a>`;
+  /* The band's geometry IS the claim. A day-precise date gets a pin; a month
+     gets exactly that month's width; a year gets the year. Nothing is ever
+     drawn narrower than the uncertainty it represents. */
+  function track(rel, span) {
+    const years = [];
+    for (let y = span.startY; y <= span.endY; y++) years.push(y);
+    const total = pos(span.to, span) || 1;
+
+    let band = '';
+    if (rel.sortKey >= MT.util.SK_UNKNOWN) {
+      band = `<div class="band tba" title="No date announced"></div>`;
+    } else {
+      const p = MT.util.sortKeyToParts(rel.sortKey);
+      if (rel.precision === 'day') {
+        band = `<div class="band day" style="left:${pct(rel.sortKey, span)}%"></div>`;
+      } else if (rel.precision === 'month') {
+        const from = p.y * 10000 + p.m * 100 + 1;
+        const to = p.y * 10000 + p.m * 100 + 28;
+        band = `<div class="band month" style="left:${pct(from, span)}%;width:${Math.max(1.2, pct(to, span) - pct(from, span))}%"></div>`;
+      } else if (rel.precision === 'quarter') {
+        const q0 = (MT.util.quarterOf(p.m) - 1) * 3 + 1;
+        const from = p.y * 10000 + q0 * 100 + 1;
+        const to = p.y * 10000 + (q0 + 2) * 100 + 28;
+        band = `<div class="band quarter" style="left:${pct(from, span)}%;width:${Math.max(2, pct(to, span) - pct(from, span))}%"></div>`;
+      } else {
+        const from = p.y * 10000 + 101, to = p.y * 10000 + 1231;
+        band = `<div class="band year" style="left:${pct(from, span)}%;width:${Math.max(3, pct(to, span) - pct(from, span))}%"></div>`;
+      }
+    }
+    void total;
+    return `<div class="track">
+      <div class="rail"></div>
+      ${years.map(y => `<div class="gr" style="left:${pct(y * 10000 + 101, span)}%"></div>
+        <div class="yr" style="left:${pct(y * 10000 + 630, span)}%">${y}</div>`).join('')}
+      ${band}
+    </div>`;
   }
 
-  function kindWord(it) {
-    if (it.facets && it.facets.anime) return 'Anime';
-    return it.kind === 'tv' ? 'TV' : it.kind === 'game' ? 'Game' : 'Film';
+  function pos(sk, span) { return MT.util.daysBetweenSortKeys(span.from, sk) || 0; }
+  function pct(sk, span) {
+    const total = MT.util.daysBetweenSortKeys(span.from, span.to) || 1;
+    return MT.util.clamp((pos(sk, span) / total) * 100, 0, 100);
   }
 
   return { render };

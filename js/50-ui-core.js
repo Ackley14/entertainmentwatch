@@ -1,203 +1,227 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Shared UI: the six components every screen is built from, plus toasts,
-   keyboard handling, and the add-to-library flow.
-
-   There is exactly ONE implementation of each component. Views compose these
-   and never hand-roll a poster or a date.
+   Shared UI. One implementation of each component; views compose these and
+   never hand-roll a poster, a date or a rating.
    ══════════════════════════════════════════════════════════════════════════ */
 
 MT.ui = (function () {
   const esc = MT.util.escapeHtml;
 
-  /* ── 1. Poster card ─────────────────────────────────────────────────── */
-  function posterCard(item, opts) {
+  /* ══ THE DATE GRAMMAR ═══════════════════════════════════════════════════
+     A date is a fixed 10-slot monospace field. A segment that is not stored is
+     replaced by a hatched block exactly as wide as the digits it stands in
+     for — which works because the placeholder characters are monospace too.
+
+         2027-12-18   day known
+         2026-12-▨▨   month known, day does not exist in the record
+         2027-▨▨-▨▨   year only
+         ▨▨▨▨-▨▨-▨▨   nothing announced
+
+     hatch = the value cannot exist in the record
+     dots  = the value exists upstream but we have not fetched it
+
+     This is the app's core idea, and the reason it renders here and nowhere
+     else: a month-precision title must never display a day, on any screen. */
+  const HATCH = c => `<span class="hatch">${'▨'.repeat(c)}</span>`;
+
+  function dateField(release, opts) {
     opts = opts || {};
-    const src = posterUrl(item, MT.IMG.poster.md);
-    const rel = item.release || {};
-    const status = item.user && item.user.status;
-    const kindLabel = item.facets && item.facets.anime ? 'Anime'
-                    : item.kind === 'tv' ? 'TV' : item.kind === 'game' ? 'Game' : 'Film';
-
-    return `
-      <a class="card" href="#/item/${encodeURIComponent(item.uid)}" data-uid="${esc(item.uid)}">
-        <div class="card__art${src ? '' : ' card__art--empty'}">
-          ${src ? `<img loading="lazy" src="${esc(src)}" alt="">`
-                : esc(MT.util.truncate(item.title, 40))}
-          <span class="card__kind">${kindLabel}</span>
-          ${status && !opts.hideStatus ? `<span class="stamp stamp--${esc(status)}">${statusWord(status)}</span>` : ''}
-        </div>
-        <div class="card__title">${esc(item.title)}</div>
-        <div class="card__sub">
-          ${dateChip(rel, { compact: true })}
-          ${opts.extra || ''}
-        </div>
-      </a>`;
-  }
-
-  function posterUrl(item, size) {
-    const p = item.images && item.images.posterPath;
-    if (!p) return null;
-    /* RAWG hands back absolute URLs; TMDB hands back paths that must be
-       prefixed at render time — sizes get retired, so a stored URL would rot. */
-    return /^https?:/.test(p) ? p : MT.tmdb.img(p, size);
-  }
-
-  function statusWord(s) {
-    return ({ want: 'Want', watching: 'Watching', watched: 'Seen', dropped: 'Dropped' })[s] || s;
-  }
-
-  /* ── 2. Result row ──────────────────────────────────────────────────── */
-  function resultRow(item, opts) {
-    opts = opts || {};
-    const src = posterUrl(item, MT.IMG.poster.sm);
-    const year = yearOf(item);
-    const kindLabel = item.kind === 'tv' ? 'TV' : item.kind === 'game' ? 'Game' : 'Film';
-    return `
-      <div class="row" role="option" data-uid="${esc(item.uid)}" ${opts.selected ? 'aria-selected="true"' : ''}>
-        ${src ? `<img class="row__art" loading="lazy" src="${esc(src)}" alt="">`
-              : '<span class="row__art"></span>'}
-        <div class="row__main">
-          <div class="row__title">${esc(item.title)}</div>
-          <div class="row__meta">
-            <span>${kindLabel}</span>
-            ${year ? `<span>${year}</span>` : ''}
-            ${item.ratings && item.ratings.tmdb
-              ? `<span>★ ${item.ratings.tmdb.score.toFixed(1)}</span>` : ''}
-          </div>
-        </div>
-        <div class="row__act">
-          ${opts.inLibrary
-            ? `<span class="row__in">✓ ${statusWord(opts.inLibrary)}</span>`
-            : `<button class="btn btn--sm" data-add="${esc(item.uid)}">Add</button>`}
-        </div>
-      </div>`;
-  }
-
-  function yearOf(item) {
-    const p = MT.util.sortKeyToParts(item.release && item.release.sortKey);
-    return p ? p.y : null;
-  }
-
-  /* ── 3. Date chip ────────────────────────────────────────────────────
-     Precision is rendered honestly. A month-precision item never shows a day
-     number anywhere — not here, not in the calendar, nowhere. */
-  function dateChip(release, opts) {
-    opts = opts || {};
-    if (!release) return '';
+    if (!release) return `<span class="date">${HATCH(4)}<span class="sep">-</span>${HATCH(2)}<span class="sep">-</span>${HATCH(2)}</span>`;
+    const p = MT.util.sortKeyToParts(release.sortKey);
     const prec = release.precision || 'unknown';
-    const days = release.sortKey < MT.util.SK_UNKNOWN ? MT.util.daysUntil(release.sortKey) : null;
 
-    let cls = 'datechip datechip--' + prec;
-    if (days === 0) cls += ' datechip--today';
-    else if (days != null && days > 0 && days <= 14) cls += ' datechip--soon';
+    let y, m, d;
+    if (!p || prec === 'tba' || prec === 'unknown') { y = HATCH(4); m = HATCH(2); d = HATCH(2); }
+    else if (prec === 'year') { y = k(p.y); m = HATCH(2); d = HATCH(2); }
+    else if (prec === 'quarter') { y = k(p.y); m = HATCH(2); d = HATCH(2); }
+    else if (prec === 'month') { y = k(p.y); m = k(pad(p.m)); d = HATCH(2); }
+    else { y = k(p.y); m = k(pad(p.m)); d = k(pad(p.d)); }
 
-    const text = release.display || 'No date';
-    /* A countdown against a vague date would be a fabricated precision, so
-       only day-precise items get one. */
-    const showCount = !opts.compact && prec === 'day' && days != null && days > -30;
+    const title = prec === 'quarter'
+      ? `Q${MT.util.quarterOf(p.m)} ${p.y} — no month announced`
+      : release.display || 'No date';
 
-    return `<span class="${cls}" title="${esc(prec === 'day' ? text : prec + ' precision')}">${esc(text)}</span>`
-      + (showCount ? ` <span class="countdown${days >= 0 && days <= 14 ? ' countdown--soon' : ''}">${esc(MT.util.relativeDays(days))}</span>` : '');
+    return `<span class="date" title="${esc(title)}">${y}<span class="sep">-</span>${m}<span class="sep">-</span>${d}</span>`;
+  }
+  const k = v => `<span class="k">${v}</span>`;
+  const pad = n => String(n).padStart(2, '0');
+
+  /* Aquarium's waterline gauge: three segments, filled only for what is
+     actually stored. Reads at a glance in a dense column where the mono field
+     needs a beat of attention. */
+  function waterline(release) {
+    const prec = (release && release.precision) || 'unknown';
+    const fills = { day: 3, month: 2, quarter: 2, year: 1, tba: 0, unknown: 0 }[prec] || 0;
+    let s = '<span class="wl" aria-hidden="true">';
+    for (let i = 0; i < 3; i++) s += `<i class="${i < fills ? 'f' : ''}"></i>`;
+    return s + '</span>';
   }
 
-  /* ── 4. Production-status pill ──────────────────────────────────────── */
-  function statusPill(release) {
-    if (!release || !release.status) return '';
-    const s = release.status;
-    if (s === 'released' || s === 'ended') return '';    // saying so is noise
-    return `<span class="prodstatus prodstatus--${esc(s)}">${esc(MT.alerts.prettyStatus(s))}</span>`;
+  function precisionTag(release) {
+    const prec = (release && release.precision) || 'unknown';
+    const label = { day: 'Exact day', month: 'Month only', quarter: 'Quarter', year: 'Year only',
+                    tba: 'TBA', unknown: 'No date' }[prec] || prec;
+    return `<span class="prec ${esc(prec)}">${esc(label)}</span>`;
   }
 
-  /* ── 5. Drift badge ─────────────────────────────────────────────────── */
+  function dateCell(release) {
+    return `<span class="datecell">${waterline(release)}${dateField(release)}</span>`;
+  }
+
+  /* Human phrasing, which must also respect precision — "in 3 days" against a
+     month-only date would be inventing information. */
+  function whenText(release) {
+    if (!release || release.sortKey >= MT.util.SK_UNKNOWN) return 'No date announced';
+    const days = MT.util.daysUntil(release.sortKey);
+    if (release.precision === 'day') {
+      return `<em>${esc(release.display)}</em> · ${esc(MT.util.relativeDays(days))}`;
+    }
+    const months = Math.round(days / 30);
+    const approx = days < 0 ? 'already out' : months <= 1 ? 'about a month away' : `about ${months} months away`;
+    return `<em>${esc(release.display)}</em> · ${approx}, no day to count down to`;
+  }
+
   function driftBadge(release) {
     const h = release && release.history;
     if (!h || !h.length) return '';
     const last = h[h.length - 1];
     if (last.deltaDays == null) return '';
     const later = last.deltaDays > 0;
-    const label = `${later ? 'Delayed' : 'Moved up'} ${Math.abs(last.deltaDays)}d`;
-    const from = MT.util.sortKeyToParts(last.from.sortKey);
-    const to = MT.util.sortKeyToParts(last.to.sortKey);
-    const title = from && to
-      ? `${MT.util.displayRelease(from, last.from.precision)} → ${MT.util.displayRelease(to, last.to.precision)}`
-      : '';
-    return `<span class="drift drift--${later ? 'later' : 'earlier'}" title="${esc(title)}">${esc(label)}</span>`;
+    return `<span class="drift ${later ? 'later' : 'earlier'}">${later ? '→' : '←'} ${Math.abs(last.deltaDays)}d</span>`;
   }
 
-  /* ── 6. Rating tile ───────────────────────────────────────────────────
-     Native units, never combined. A Tomatometer is the share of critics who
-     were positive; a Metascore is a weighted quality average; they are not
-     commensurable and averaging them yields a number that means nothing.
+  /* ══ POSTER ═════════════════════════════════════════════════════════════
+     Real TMDB artwork when we have it. When we do not, a generated block
+     built from a hash of the title, so a missing image is a deliberate
+     composition rather than an empty hole. */
+  function posterUrl(item, size) {
+    const p = item && item.images && item.images.posterPath;
+    if (!p) return null;
+    return /^https?:/.test(p) ? p : MT.tmdb.img(p, size);
+  }
 
-     Absence is rendered in two distinct ways, because they mean different
-     things: a source that does not cover this medium at all is omitted
-     entirely, while a source that covers it but has no score yet shows a
-     muted dash. Collapsing the two makes missing data look like a bug. */
-  function ratingTile(src, r, opts) {
+  const HUES = [
+    ['#3E6B78', '#16242A'], ['#6B4A6E', '#241A2E'], ['#4E7A6B', '#17251F'],
+    ['#7A5A3E', '#2A1D14'], ['#455C86', '#171F30'], ['#7A3F49', '#2B161A'],
+    ['#5D6B3E', '#1F2416'], ['#3F5F7A', '#16222B'],
+  ];
+  function hues(title) {
+    const h = parseInt(MT.util.fnv1a(title || 'x').slice(0, 4), 36) || 0;
+    return HUES[h % HUES.length];
+  }
+
+  function poster(item, opts) {
     opts = opts || {};
-    const meta = {
-      imdb:       { label: 'IMDb',       fmt: v => v.toFixed(1), suffix: '/10' },
-      tmdb:       { label: 'TMDB',       fmt: v => v.toFixed(1), suffix: '/10' },
-      rt:         { label: 'Tomatometer', fmt: v => String(Math.round(v)), suffix: '%' },
-      metacritic: { label: 'Metacritic', fmt: v => String(Math.round(v)), suffix: '/100' },
-      anilist:    { label: 'AniList',    fmt: v => String(Math.round(v)), suffix: '%' },
-      rawg:       { label: 'RAWG',       fmt: v => v.toFixed(1), suffix: '/5' },
-      user:       { label: 'You',        fmt: v => v.toFixed(1), suffix: '/10' },
-    }[src];
-    if (!meta) return '';
+    const url = posterUrl(item, opts.size || MT.IMG.poster.md);
+    const [a, b] = hues(item.title);
+    const initial = (item.title || '?').trim()[0] || '?';
+    const cls = 'poster' + (url ? '' : ' gen') + (opts.cls ? ' ' + opts.cls : '');
+    return `<div class="${cls}" style="--a:${a};--b:${b}" data-i="${esc(initial)}">${
+      url ? `<img loading="lazy" src="${esc(url)}" alt="">` : ''
+    }</div>`;
+  }
 
-    if (!r || r.score == null) {
-      if (opts.pending) {
-        return `<div class="rating rating--pending" data-src="${src}">
-                  <span class="rating__src">${meta.label}</span>
-                  <span class="rating__val">…</span></div>`;
-      }
-      return `<div class="rating rating--empty" data-src="${src}" title="No score from ${meta.label} yet">
-                <span class="rating__src">${meta.label}</span>
-                <span class="rating__val">—</span></div>`;
+  function chipart(item) {
+    const url = posterUrl(item, MT.IMG.poster.sm);
+    const [a, b] = hues(item.title);
+    return `<span class="chipart" style="--a:${a};--b:${b}">${
+      url ? `<img loading="lazy" src="${esc(url)}" alt="">` : ''
+    }</span>`;
+  }
+
+  /* ══ LABELS ═════════════════════════════════════════════════════════════ */
+  function kindOf(item) {
+    if (item.facets && item.facets.anime) return 'anime';
+    return item.kind === 'tv' ? 'tv' : item.kind === 'game' ? 'game' : 'film';
+  }
+  const KIND_LABEL = { film: 'Film', tv: 'TV', game: 'Game', anime: 'Anime' };
+  function kindTag(item) {
+    const kd = kindOf(item);
+    return `<span class="tag ${kd}">${KIND_LABEL[kd]}</span>`;
+  }
+  const STATUS_WORD = { want: 'Want', watching: 'Watching', watched: 'Finished', dropped: 'Dropped' };
+  function statusCell(item) {
+    const s = (item.user && item.user.status) || 'want';
+    return `<span class="stat"><span class="dot c-${s} ${s === 'watching' ? 'fill' : ''}"></span>${STATUS_WORD[s]}</span>`;
+  }
+
+  /* ══ TABLE + GRID ═══════════════════════════════════════════════════════ */
+  const COLUMNS = [
+    { key: 'title', label: 'Title' },
+    { key: 'type', label: 'Type', drop: true },
+    { key: 'status', label: 'Status', drop: true },
+    { key: 'release', label: 'Release' },
+    { key: 'progress', label: 'Progress', drop: true },
+    { key: 'rating', label: 'Yours', num: true },
+    { key: 'added', label: 'Added', num: true, drop: true },
+  ];
+
+  function table(items, selectedUid) {
+    if (!items.length) return '';
+    return `<div class="tblwrap"><table>
+      <thead><tr>${COLUMNS.map(c =>
+        `<th${c.num ? ' class="num"' : ''}${c.drop ? ' data-drop' : ''}>${c.label}</th>`).join('')}</tr></thead>
+      <tbody>${items.map(it => tableRow(it, it.uid === selectedUid)).join('')}</tbody>
+    </table></div>`;
+  }
+
+  function tableRow(item, selected) {
+    const u = item.user || {};
+    const added = u.addedAt ? new Date(u.addedAt) : null;
+    return `<tr data-uid="${esc(item.uid)}"${selected ? ' class="is-sel"' : ''}>
+      <td><span class="title-cell">${chipart(item)}<span class="t">${esc(item.title)}</span>${driftBadge(item.release)}</span></td>
+      <td data-drop>${kindTag(item)}</td>
+      <td data-drop>${statusCell(item)}</td>
+      <td>${dateCell(item.release)}</td>
+      <td data-drop class="muted">${esc(progressText(item))}</td>
+      <td class="num mono">${u.rating != null ? esc(u.rating) + '<span class="faint">/10</span>' : '<span class="faint">·&nbsp;·</span>'}</td>
+      <td data-drop class="num mono faint">${added ? esc(added.toISOString().slice(0, 10)) : ''}</td>
+    </tr>`;
+  }
+
+  function progressText(item) {
+    const u = item.user || {};
+    if (item.kind === 'tv' && item.tvExtra && item.tvExtra.nextEpisode) {
+      const n = item.tvExtra.nextEpisode;
+      return `S${n.season} E${n.episode}`;
     }
-
-    const inner = `
-      <span class="rating__src">${meta.label}</span>
-      <span class="rating__val">${esc(meta.fmt(r.score))}<small>${meta.suffix}</small></span>
-      ${r.votes ? `<span class="rating__votes">${esc(MT.util.formatVotes(r.votes))} votes</span>` : ''}`;
-
-    return r.url
-      ? `<a class="rating" data-src="${src}" href="${esc(r.url)}" target="_blank" rel="noopener">${inner}</a>`
-      : `<div class="rating" data-src="${src}">${inner}</div>`;
+    if (item.kind === 'game' && u.progress && u.progress.hoursPlayed) return `${u.progress.hoursPlayed}h played`;
+    if (item.runtimeMin) return MT.util.runtimeStr(item.runtimeMin);
+    return '—';
   }
 
-  /* ── Shells ─────────────────────────────────────────────────────────── */
-
-  function ruleHead(label, aside) {
-    return `<div class="rulehead">
-      <span class="rulehead__label">${esc(label)}</span>
-      <span class="rulehead__rule"></span>
-      ${aside ? `<span class="rulehead__aside">${aside}</span>` : ''}
-    </div>`;
+  function grid(items, selectedUid) {
+    return `<div class="grid">${items.map(it => `
+      <div class="card${it.uid === selectedUid ? ' is-sel' : ''}" data-uid="${esc(it.uid)}">
+        ${poster(it)}
+        <div class="ct">${esc(it.title)}</div>
+        <div class="cs">${waterline(it.release)}<span class="mono">${esc(shortWhen(it.release))}</span></div>
+      </div>`).join('')}</div>`;
   }
 
+  function shortWhen(release) {
+    if (!release || release.sortKey >= MT.util.SK_UNKNOWN) return 'TBA';
+    const p = MT.util.sortKeyToParts(release.sortKey);
+    if (release.precision === 'day') return release.display;
+    if (release.precision === 'month') return `${MT.util.MONTHS_ABBR[p.m - 1]} ${p.y}`;
+    return String(p.y);
+  }
+
+  /* ══ FEEDBACK ═══════════════════════════════════════════════════════════ */
   function emptyState(o) {
-    return `<div class="empty">
-      <h3>${esc(o.title)}</h3>
-      <p>${o.body || ''}</p>
-      ${o.actions || ''}
-    </div>`;
+    return `<div class="empty"><h3>${esc(o.title)}</h3><p>${o.body || ''}</p>${o.actions || ''}</div>`;
   }
-
   function errorBox(title, body) {
     return `<div class="errorbox"><strong>${esc(title)}</strong>${esc(body)}</div>`;
   }
-
   function skeletonGrid(n) {
     let s = '<div class="grid">';
-    for (let i = 0; i < (n || 12); i++) {
-      s += '<div><div class="skel skel--poster"></div><div class="skel skel--line"></div></div>';
-    }
+    for (let i = 0; i < (n || 12); i++) s += '<div><div class="skel skel--poster"></div><div class="skel skel--line"></div></div>';
     return s + '</div>';
   }
+  function groupHead(label, count) {
+    return `<div class="group-h">${esc(label)}${count != null ? ` <span class="count">${count}</span>` : ''}</div>`;
+  }
 
-  /* ── Toasts ─────────────────────────────────────────────────────────── */
   function toast(message, opts) {
     opts = opts || {};
     const host = document.getElementById('toasts');
@@ -221,55 +245,48 @@ MT.ui = (function () {
     if (!el) return;
     el.hidden = false;
     el.innerHTML = `<span>${esc(message)}</span>`;
-    if (opts.actionLabel) {
-      const b = document.createElement('button');
-      b.textContent = opts.actionLabel;
-      b.onclick = () => { opts.onAction && opts.onAction(); el.hidden = true; };
-      el.appendChild(b);
-    } else {
-      const b = document.createElement('button');
-      b.textContent = 'Dismiss';
-      b.onclick = () => { el.hidden = true; };
-      el.appendChild(b);
-    }
+    const b = document.createElement('button');
+    b.textContent = opts.actionLabel || 'Dismiss';
+    b.onclick = () => { if (opts.onAction) opts.onAction(); el.hidden = true; };
+    el.appendChild(b);
   }
 
-  /* ── The add flow ─────────────────────────────────────────────────────
-     Optimistic: a stub is written and the UI updates immediately, then the
-     full detail fetch fills it in. "Three keystrokes to on-my-list" only holds
-     if adding never waits on the network. */
+  function crumb(parts) {
+    const el = document.getElementById('crumb');
+    if (!el) return;
+    el.innerHTML = parts.map((p, i) =>
+      i === parts.length - 1 ? `<b>${esc(p)}</b>` : `${esc(p)}<s>/</s>`).join(' ');
+  }
+
+  function paneActions(html) {
+    const el = document.getElementById('paneActions');
+    if (el) el.innerHTML = html || '';
+  }
+
+  /* ══ ADD / MUTATE ═══════════════════════════════════════════════════════ */
   async function addItem(stub, opts) {
     opts = opts || {};
     const existingUid = await MT.repo.resolveUid(MT.repo.idKeysFor(stub));
     if (existingUid) {
       const existing = await MT.repo.getItem(existingUid);
-      if (existing) {
-        MT.ui.toast(`Already in your library as “${existing.user.status}”.`);
-        return existing;
-      }
+      if (existing) { toast(`Already in your index as “${STATUS_WORD[existing.user.status]}”.`); return existing; }
     }
-
     const item = MT.normalize.withDefaults(stub, opts.status || 'want', opts.source || 'search');
     MT.sync.retier(item);
     await MT.repo.putItem(item);
-    /* First observation establishes a baseline and emits nothing. */
+    /* First observation is a baseline and emits nothing. */
     await MT.repo.putSnapshot(Object.assign({ baseline: 1 }, MT.alerts.snapshotOf(item)));
 
     toast(`Added “${MT.util.truncate(item.title, 40)}”`, {
       actionLabel: 'Undo',
       onAction: async () => { await MT.repo.deleteItem(item.uid); MT.router.resolve(); },
     });
-
-    /* Deliberately WITHOUT ratings. Adding ten titles in a row should not spend
-       ten OMDb lookups against a 1,000/day allowance for scores nobody has
-       asked to see yet — those are fetched when an item page is opened. */
+    /* Deliberately without ratings — adding ten titles should not spend ten
+       OMDb lookups against a 1,000/day allowance for scores nobody asked for. */
     hydrate(item.uid, { ratings: false }).catch(e => console.warn('[ui] hydrate failed', e));
     return item;
   }
 
-  /* Fill in a partial record with the full detail payload.
-     `opts.ratings` gates the scarce third-party lookups (OMDb, AniList); pass
-     it only from a view the user is actually looking at. */
   async function hydrate(uid, opts) {
     opts = opts || {};
     const wantRatings = opts.ratings !== false;
@@ -293,22 +310,16 @@ MT.ui = (function () {
     MT.sync.retier(merged);
     await MT.repo.putItem(merged);
     MT.repo.dfObserve(merged.uid, Object.keys(merged.rec.terms || {}));
-
     if (wantRatings) enrichRatings(merged);
     return merged;
   }
 
-  /* The scarce lookups, fired only when something is actually on screen.
-     Both are best-effort and must never block a render: OMDb is unmaintained
-     and may simply never answer, and AniList is currently rate-limited to
-     30 requests a minute. */
+  /* The scarce lookups, fired only when something is on screen. Both are
+     best-effort and never block a render. */
   function enrichRatings(item) {
     const uid = item.uid;
-
     if (item.ids.imdb && MT.config.hasKey('omdb')) {
       const age = Date.now() - ((item.ratings && item.ratings.imdb && item.ratings.imdb.fetchedAt) || 0);
-      /* The response cache would catch a repeat anyway, but checking here
-         avoids even queueing the request. */
       if (age > MT.TTL.omdb) {
         MT.omdb.byImdbId(item.ids.imdb).then(async r => {
           if (!r) return;
@@ -320,7 +331,6 @@ MT.ui = (function () {
         }).catch(() => {});
       }
     }
-
     if (item.facets && item.facets.anime) {
       MT.anilist.enrichItem(item).then(async changed => {
         if (!changed) return;
@@ -337,13 +347,10 @@ MT.ui = (function () {
     const before = item.user.status;
     item.user.status = status;
     if (status === 'watching' && !item.user.startedAt) item.user.startedAt = Date.now();
-    if (status === 'watched') {
-      item.user.finishedAt = Date.now();
-      MT.repo.addHistory(uid, 'finished');
-    }
+    if (status === 'watched') { item.user.finishedAt = Date.now(); MT.repo.addHistory(uid, 'finished'); }
     MT.sync.retier(item);
     await MT.repo.putItem(item);
-    toast(`Moved to ${statusWord(status)}`, {
+    toast(`Moved to ${STATUS_WORD[status]}`, {
       actionLabel: 'Undo',
       onAction: async () => {
         const it = await MT.repo.getItem(uid);
@@ -353,30 +360,14 @@ MT.ui = (function () {
     return item;
   }
 
-  /* ── Keyboard ─────────────────────────────────────────────────────────
-     "/" focuses search from anywhere. Deliberately not a full command palette
-     — one shortcut people actually use beats twelve they don't. */
-  function installKeyboard() {
-    document.addEventListener('keydown', e => {
-      const tag = (e.target.tagName || '').toLowerCase();
-      const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-      if (e.key === '/' && !typing) {
-        e.preventDefault();
-        const omni = document.getElementById('omni');
-        omni.focus(); omni.select();
-      }
-      if (e.key === 'Escape' && tag === 'input') e.target.blur();
-    });
-  }
-
-  function confirmDialog(message) {
-    return window.confirm(message);
-  }
+  const confirmDialog = m => window.confirm(m);
 
   return {
-    posterCard, resultRow, dateChip, statusPill, driftBadge, ratingTile,
-    ruleHead, emptyState, errorBox, skeletonGrid, toast, banner,
-    addItem, hydrate, enrichRatings, setStatus, installKeyboard, confirmDialog,
-    posterUrl, statusWord, yearOf, esc,
+    esc, dateField, waterline, precisionTag, dateCell, whenText, driftBadge,
+    poster, posterUrl, chipart, hues, kindOf, kindTag, statusCell, progressText, shortWhen,
+    table, tableRow, grid, COLUMNS,
+    emptyState, errorBox, skeletonGrid, groupHead, toast, banner, crumb, paneActions,
+    addItem, hydrate, enrichRatings, setStatus, confirmDialog,
+    STATUS_WORD, KIND_LABEL,
   };
 })();

@@ -1,92 +1,163 @@
-/* ── MovieTrak design tokens ──────────────────────────────────────────────
-   "Late Show": a repertory-cinema programme, printed at night.
-   Ink field, warm bone type, one sodium-amber marquee accent, hairline rules
-   doing the structural work. Deliberately un-round, un-shadowed, un-gradient.
-   Dark only — a print-on-black programme has no light mode.
-   ───────────────────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   MovieTrak design tokens — "Tide"
 
+   Index's three-pane structure carrying Aquarium's glassy dark, as ONE token
+   set. Chosen from a three-round exploration (30 → 15 → 5).
+
+   THE RULE OF THIS FILE
+   ─────────────────────
+   Geometry is declared exactly once, in :root, and is IDENTICAL in both
+   themes. Every spacing value, rule weight, radius and type size lives there.
+   The two [data-theme] blocks declare the SAME token names in the SAME order
+   and differ only in value. Nothing anywhere else reads a raw colour.
+
+   Toggle the theme and not one pixel moves — only colour and material change.
+   That property is the whole point of the direction, so keep it: if you find
+   yourself adding a geometry value inside a theme block, the design has
+   drifted and it is worth stopping to ask why.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══ 1 · GEOMETRY + TYPE — theme-invariant, declared once ══════════════════ */
 :root {
-  /* Field. Not pure black: paper stock under a projector bulb. */
-  --ink-000: #0b0b0d;   /* page */
-  --ink-050: #101013;   /* sunken wells, inputs */
-  --ink-100: #16161a;   /* cards */
-  --ink-150: #1d1d22;   /* card hover */
-  --ink-200: #26262d;   /* raised */
+  /* pane geometry */
+  --mt-w-tree: 266px;
+  --mt-w-inspector: 372px;
+  --mt-h-bar: 44px;
+  --mt-h-treerow: 25px;
+  --mt-h-tablerow: 34px;
 
-  /* Rules. Hairlines carry the structure; there are no shadows anywhere. */
-  --rule-faint: #232329;
-  --rule:       #33333c;
-  --rule-loud:  #4a4a56;
+  /* spacing scale */
+  --mt-space-1: 4px;  --mt-space-2: 6px;  --mt-space-3: 8px;
+  --mt-space-4: 10px; --mt-space-5: 12px; --mt-space-6: 16px; --mt-space-7: 22px;
 
-  /* Type. Warm bone, never #fff — pure white vibrates against this field. */
-  --bone-100: #f0ebe2;  /* titles */
-  --bone-200: #cfc9be;  /* body */
-  --bone-300: #9b958a;  /* secondary */
-  --bone-400: #6e6960;  /* tertiary, disabled */
+  /* radii + rule weights */
+  --mt-radius-sm: 2px; --mt-radius: 4px; --mt-radius-lg: 10px; --mt-radius-pill: 999px;
+  --mt-rule-w: 1px;    --mt-marker-w: 3px;
 
-  /* Marquee. Exactly one accent, the colour of a sodium bulb. */
-  --amber-100: #ffcf7a;
-  --amber-200: #f5a623;
-  --amber-300: #b8761a;
-  --amber-wash: rgba(245, 166, 35, .12);
+  /* type scale */
+  --mt-fs-micro: 9.5px; --mt-fs-mini: 10.5px; --mt-fs-sm: 11.5px;
+  --mt-fs-base: 12.5px; --mt-fs-md: 14.5px;   --mt-fs-lg: 23px;
+  --mt-tracking-caps: .15em;
 
-  /* Semantic. Desaturated to sit inside the amber world, not fight it. */
-  --good:  #7fae6e;
-  --warn:  #d9903f;
-  --bad:   #c4634f;
-  --cool:  #6f93b5;   /* informational; the only non-warm hue */
+  /* System stacks only. A webfont would be an external request, and a relative
+     @font-face URL is blocked on file:// — which would break opening the app
+     from disk, the mode this app is built for. */
+  --mt-font-sans: ui-sans-serif, system-ui, "Segoe UI Variable", "Segoe UI",
+                  -apple-system, Roboto, sans-serif;
+  --mt-font-serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --mt-font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
 
-  /* Rating source marks — recognisable without being brand-accurate mimicry. */
-  --src-imdb:   #e8c33c;
-  --src-tmdb:   #4fb6a4;
-  --src-rt:     #d1584a;
-  --src-meta:   #86b84f;
-  --src-anilist:#7b9fe0;
-  --src-rawg:   #b3b3bb;
+  --mt-ease: cubic-bezier(.2, .7, .3, 1);
+  --mt-dur: 170ms;
 
-  /* Type stack. System-resident only — no CDN, no webfont payload.
-     Serif for titles (a programme is set in serif), grotesque for UI,
-     monospace for every number so columns of dates and scores align. */
-  --face-title: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
-                Georgia, "Times New Roman", serif;
-  --face-ui:    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter,
-                Roboto, "Helvetica Neue", Arial, sans-serif;
-  --face-mono:  ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
-                "Roboto Mono", Menlo, Consolas, monospace;
+  /* Semantic aliases — resolved per theme via the colour tokens below, and
+     deliberately never redeclared inside a theme block. */
+  --mt-type-film: var(--mt-teal);
+  --mt-type-tv: var(--mt-ice);
+  --mt-type-game: var(--mt-coral);
+  --mt-type-anime: var(--mt-amber);
+  --mt-precision-day: var(--mt-teal);
+  --mt-precision-month: var(--mt-amber);
+  --mt-precision-year: var(--mt-coral);
 
-  /* Scale — a fourth-ish ratio, truncated where it stops being useful. */
-  --t-xs:  .6875rem;  /* 11px  legal, colophon */
-  --t-sm:  .8125rem;  /* 13px  meta, chips */
-  --t-base:  .9375rem;/* 15px  body */
-  --t-md:  1.125rem;  /* 18px  card titles */
-  --t-lg:  1.5rem;    /* 24px  section heads */
-  --t-xl:  2rem;      /* 32px  page heads */
-  --t-2xl: 2.75rem;   /* 44px  item hero */
-  --t-3xl: 4rem;      /* 64px  stat numerals */
-
-  /* Space — 4px base, named by use not size. */
-  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
-  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 72px;
-
-  /* Geometry. 2px is the largest radius in the system, and it is used sparingly.
-     Posters and chips are square. This is the single strongest anti-generic
-     signal in the whole design — resist adding rounding. */
-  --radius: 2px;
-
-  --measure: 68ch;          /* prose max width */
-  --bar-h: 56px;            /* sticky header */
-  --poster-ratio: 2 / 3;
-
-  /* Motion. Short, linear-ish, and honest. Nothing bounces. */
-  --ease: cubic-bezier(.2, 0, 0, 1);
-  --fast: 90ms;
-  --mid: 170ms;
-
-  --z-pop: 40;
-  --z-bar: 50;
-  --z-toast: 60;
+  --mt-z-bar: 20;  --mt-z-scrim: 35;  --mt-z-drawer: 45;  --mt-z-toast: 60;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root { --fast: 0ms; --mid: 0ms; }
+/* ══ 2 · LIGHT — "low tide": bleached shell, cool paper ════════════════════ */
+:root[data-theme="light"] {
+  --mt-surface-canvas: #F8F9F8;
+  --mt-surface-rail: #F0F2F1;
+  --mt-surface-sunk: #E7EAE9;
+  --mt-surface-raised: #FFFFFF;
+  --mt-surface-hover: #EDF0EF;
+  --mt-surface-glass: rgba(252, 253, 253, .66);
+  --mt-glass-blur: blur(28px) saturate(1.7);
+
+  --mt-line-hairline: #E2E6E5;
+  --mt-line-rule: #CFD6D5;
+  --mt-line-strong: #B3BDBC;
+  --mt-line-highlight: rgba(255, 255, 255, .9);
+
+  --mt-text-primary: #12201F;
+  --mt-text-secondary: #42514F;
+  --mt-text-muted: #6D7B79;
+  --mt-text-faint: #9AA6A4;
+
+  --mt-teal:  #0B6F62; --mt-teal-text:  #0A5C51; --mt-teal-wash:  #DCECE8; --mt-teal-edge:  #8CC4B9;
+  --mt-coral: #B03A22; --mt-coral-text: #96301B; --mt-coral-wash: #F6E3DD; --mt-coral-edge: #DFA995;
+  --mt-amber: #8A6208; --mt-amber-text: #755207; --mt-amber-wash: #F4E9CF; --mt-amber-edge: #D6BA79;
+  --mt-ice:   #1E5F91; --mt-ice-text:   #1A5480; --mt-ice-wash:   #DFEAF3; --mt-ice-edge:   #94BAD7;
+
+  --mt-good: #1F6B3F;  --mt-bad: #A32A18;
+
+  /* The hatch is a static stripe and never blurs — it repeats hundreds of
+     times across a dense table, so it has to be free to paint. */
+  --mt-hatch-stripe: rgba(18, 32, 31, .22);
+  --mt-hatch-ground: rgba(18, 32, 31, .04);
+  --mt-hatch-edge: rgba(18, 32, 31, .11);
+  --mt-hatch-ink: #9AA6A4;
+  --mt-pending-ink: #9AA6A4;
+
+  --mt-shadow-sheet: 0 -12px 30px -18px rgba(12, 28, 26, .45);
+  --mt-shadow-drawer: 0 18px 44px -26px rgba(12, 28, 26, .55);
+  --mt-shadow-lift: 0 8px 18px -8px rgba(12, 28, 26, .32);
+  --mt-shadow-inset-top: inset 0 1px 0 rgba(255, 255, 255, .9);
+
+  --mt-focus-ring: #1E5F91;
+  --mt-selection: #CBE6DF;
+  --mt-scrim: rgba(18, 32, 31, .24);
+  --mt-poster-edge: rgba(18, 32, 31, .14);
+  --mt-tank-1: transparent;
+  --mt-tank-2: transparent;
+  color-scheme: light;
+}
+
+/* ══ 3 · DARK — "deep water": same geometry, teal-black ground ═════════════ */
+:root[data-theme="dark"] {
+  --mt-surface-canvas: #071619;
+  --mt-surface-rail: #0A1F24;
+  --mt-surface-sunk: #061318;
+  --mt-surface-raised: rgba(255, 255, 255, .045);
+  --mt-surface-hover: rgba(255, 255, 255, .055);
+  --mt-surface-glass: rgba(8, 26, 31, .70);
+  --mt-glass-blur: blur(12px) saturate(1.25);   /* cheap: dark leans on translucency */
+
+  --mt-line-hairline: rgba(255, 255, 255, .075);
+  --mt-line-rule: rgba(255, 255, 255, .13);
+  --mt-line-strong: rgba(255, 255, 255, .24);
+  --mt-line-highlight: rgba(255, 255, 255, .16);
+
+  --mt-text-primary: #EAF7F4;
+  --mt-text-secondary: #B4CFCC;
+  --mt-text-muted: #7E9C9C;
+  --mt-text-faint: #5C7679;
+
+  --mt-teal:  #23E3C5; --mt-teal-text:  #6FF3DC; --mt-teal-wash:  rgba(35, 227, 197, .14); --mt-teal-edge:  rgba(35, 227, 197, .42);
+  --mt-coral: #FF5F45; --mt-coral-text: #FF9683; --mt-coral-wash: rgba(255, 95, 69, .15);  --mt-coral-edge: rgba(255, 95, 69, .42);
+  --mt-amber: #FFC25C; --mt-amber-text: #FFD48C; --mt-amber-wash: rgba(255, 194, 92, .14); --mt-amber-edge: rgba(255, 194, 92, .42);
+  --mt-ice:   #7CC7FF; --mt-ice-text:   #A6DAFF; --mt-ice-wash:   rgba(124, 199, 255, .14); --mt-ice-edge:  rgba(124, 199, 255, .42);
+
+  --mt-good: #4FD08A;  --mt-bad: #FF7A63;
+
+  --mt-hatch-stripe: rgba(214, 240, 238, .20);
+  --mt-hatch-ground: rgba(255, 255, 255, .035);
+  --mt-hatch-edge: rgba(255, 255, 255, .10);
+  --mt-hatch-ink: #5C7679;
+  --mt-pending-ink: #5C7679;
+
+  --mt-shadow-sheet: 0 -14px 34px -20px rgba(0, 0, 0, .75);
+  --mt-shadow-drawer: 0 22px 52px -28px rgba(0, 0, 0, .85);
+  --mt-shadow-lift: 0 10px 22px -10px rgba(0, 0, 0, .7);
+  --mt-shadow-inset-top: inset 0 1px 0 rgba(255, 255, 255, .16);
+
+  --mt-focus-ring: #7CC7FF;
+  --mt-selection: rgba(35, 227, 197, .24);
+  --mt-scrim: rgba(2, 10, 13, .6);
+  --mt-poster-edge: rgba(255, 255, 255, .14);
+  /* Two very large, very cheap radial washes give the dark ground its depth.
+     Painted once, never animated, never blurred — this is what lets the theme
+     read as "underwater" without a single expensive filter. */
+  --mt-tank-1: radial-gradient(72vw 58vw at 6% -8%, rgba(11, 125, 120, .30), transparent 62%);
+  --mt-tank-2: radial-gradient(60vw 52vw at 96% 92%, rgba(28, 95, 156, .22), transparent 62%);
+  color-scheme: dark;
 }

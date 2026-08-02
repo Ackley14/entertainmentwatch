@@ -1,120 +1,144 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   #/list — the library.
+   #/library — the dense default view. Table or poster grid.
    ══════════════════════════════════════════════════════════════════════════ */
 
-MT.viewList = (function () {
+MT.viewLibrary = (function () {
   const esc = MT.util.escapeHtml;
+  const MODE_KEY = 'mt.library.mode';
 
   const SORTS = {
-    added:    { label: 'Recently added',  fn: (a, b) => (b.user.addedAt || 0) - (a.user.addedAt || 0) },
-    release:  { label: 'Release date',    fn: (a, b) => a.release.sortKey - b.release.sortKey },
-    title:    { label: 'Title',           fn: (a, b) => (a.sortTitle || '').localeCompare(b.sortTitle || '') },
-    rating:   { label: 'Rating',          fn: (a, b) => scoreOf(b) - scoreOf(a) },
-    priority: { label: 'Priority',        fn: (a, b) => (b.user.priority || 0) - (a.user.priority || 0) },
+    added:   { label: 'Recently added', fn: (a, b) => (b.user.addedAt || 0) - (a.user.addedAt || 0) },
+    release: { label: 'Release date',   fn: (a, b) => a.release.sortKey - b.release.sortKey },
+    title:   { label: 'Title',          fn: (a, b) => (a.sortTitle || '').localeCompare(b.sortTitle || '') },
+    rating:  { label: 'Your rating',    fn: (a, b) => (b.user.rating || -1) - (a.user.rating || -1) },
   };
 
-  function scoreOf(it) {
-    const r = it.ratings || {};
-    if (it.user && it.user.rating != null) return it.user.rating * 10;
-    if (r.imdb) return r.imdb.score * 10;
-    if (r.tmdb) return r.tmdb.score * 10;
-    if (r.metacritic) return r.metacritic.score;
-    if (r.rawg) return r.rawg.score * 20;
-    return -1;
-  }
+  const mode = () => { try { return localStorage.getItem(MODE_KEY) || 'table'; } catch (_) { return 'table'; } };
+  const setMode = m => { try { localStorage.setItem(MODE_KEY, m); } catch (_) {} };
 
   async function render(params, query) {
     const view = document.getElementById('view');
-    const status = (query && query.status) || 'want';
-    const kind = (query && query.kind) || 'all';
-    const sort = (query && query.sort) || 'added';
-    const tag = (query && query.tag) || '';
-
+    const q = query || {};
     const all = await MT.repo.allItems();
-    if (!all.length) {
-      view.innerHTML = MT.ui.emptyState({
-        title: 'Your library is empty',
-        body: 'Search for something at the top of the page and press <span class="num">Enter</span> to add it. Films, television and games all live here together.',
-        actions: '<button class="btn btn--primary" onclick="document.getElementById(\'omni\').focus()">Search for something</button>',
-      });
-      return;
-    }
 
-    const counts = { want: 0, watching: 0, watched: 0, dropped: 0 };
-    for (const it of all) counts[it.user.status] = (counts[it.user.status] || 0) + 1;
+    if (!all.length) return firstRun(view);
 
-    let rows = all.filter(it => it.user.status === status);
-    if (kind === 'anime') rows = rows.filter(it => it.facets && it.facets.anime);
-    else if (kind !== 'all') rows = rows.filter(it => it.kind === kind);
-    if (tag) rows = rows.filter(it => (it.user.tags || []).includes(tag));
-    rows.sort(SORTS[sort] ? SORTS[sort].fn : SORTS.added.fn);
+    let rows = all.slice();
+    if (q.status) rows = rows.filter(i => i.user.status === q.status);
+    if (q.kind === 'anime') rows = rows.filter(i => i.facets && i.facets.anime);
+    else if (q.kind) rows = rows.filter(i => i.kind === q.kind);
+    if (q.tag) rows = rows.filter(i => (i.user.tags || []).includes(q.tag));
+    if (q.undated) rows = rows.filter(i => i.release.sortKey >= MT.util.SK_UNKNOWN);
 
-    const allTags = [...new Set(all.flatMap(it => it.user.tags || []))].sort();
+    const sort = q.sort || 'added';
+    rows.sort((SORTS[sort] || SORTS.added).fn);
 
+    const label = q.tag ? `#${q.tag}`
+      : q.status ? MT.ui.STATUS_WORD[q.status]
+      : q.kind ? (MT.ui.KIND_LABEL[q.kind === 'movie' ? 'film' : q.kind] || q.kind)
+      : 'All titles';
+    MT.ui.crumb(['Library', label]);
+    MT.ui.paneActions(`
+      <div class="seg" id="modeSeg">
+        <button type="button" data-mode="table" aria-pressed="${mode() === 'table'}">Table</button>
+        <button type="button" data-mode="grid" aria-pressed="${mode() === 'grid'}">Posters</button>
+      </div>`);
+
+    const sel = MT.inspector.current;
     view.innerHTML = `
-      <div class="pagehead">
-        <div>
-          <h1>Library</h1>
-          <div class="pagehead__sub">${MT.util.pluralize(all.length, 'title')} tracked</div>
-        </div>
-      </div>
-
       <div class="toolbar">
-        <div class="seg" role="group" aria-label="Status">
-          ${['want', 'watching', 'watched', 'dropped'].map(s => `
-            <button data-status="${s}" aria-pressed="${s === status}">
-              ${MT.ui.statusWord(s)}<span class="count">${counts[s] || 0}</span>
-            </button>`).join('')}
+        <div class="chips" id="kindChips">
+          ${[['', 'All'], ['movie', 'Film'], ['tv', 'TV'], ['game', 'Games'], ['anime', 'Anime']].map(([k, l]) =>
+            `<button class="chip" type="button" data-kind="${k}" aria-pressed="${(q.kind || '') === k}">${l}</button>`).join('')}
         </div>
-
-        <div class="chiprow">
-          ${[['all', 'Everything'], ['movie', 'Films'], ['tv', 'TV'], ['game', 'Games'], ['anime', 'Anime']]
-            .map(([k, l]) => `<button class="chip" data-kind="${k}" aria-pressed="${k === kind}">${l}</button>`).join('')}
-        </div>
-
-        <div class="toolbar__spacer"></div>
-
-        ${allTags.length ? `<select id="tag-filter" aria-label="Tag">
-          <option value="">All tags</option>
-          ${allTags.map(t => `<option value="${esc(t)}" ${t === tag ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-        </select>` : ''}
-
-        <select id="sort" aria-label="Sort by">
+        <div class="spacer"></div>
+        <span class="count">${rows.length} of ${all.length}</span>
+        <select id="sortSel" class="chip" style="height:23px;padding:0 6px">
           ${Object.entries(SORTS).map(([k, v]) =>
-            `<option value="${k}" ${k === sort ? 'selected' : ''}>${v.label}</option>`).join('')}
+            `<option value="${k}"${k === sort ? ' selected' : ''}>${v.label}</option>`).join('')}
         </select>
       </div>
+      ${rows.length
+        ? (mode() === 'grid' ? MT.ui.grid(rows, sel) : MT.ui.table(rows, sel))
+        : MT.ui.emptyState({
+            title: 'Nothing here',
+            body: 'No titles match these filters. Try a different status or type in the index on the left.',
+          })}`;
 
-      <div id="list-body">
-        ${rows.length
-          ? '<div class="grid">' + rows.map(it => MT.ui.posterCard(it, {
-              hideStatus: true,
-              extra: it.user.rating != null ? `<span class="num">★${it.user.rating}</span>` : '',
-            })).join('') + '</div>'
-          : MT.ui.emptyState({
-              title: `Nothing in ${MT.ui.statusWord(status)}`,
-              body: kind === 'all'
-                ? 'Move something here from another tab, or add a new title.'
-                : 'No matches with these filters.',
-            })}
-      </div>`;
-
-    view.querySelector('.toolbar').addEventListener('click', e => {
-      const s = e.target.closest('[data-status]');
-      const k = e.target.closest('[data-kind]');
-      if (s) go({ status: s.dataset.status, kind, sort, tag });
-      if (k) go({ status, kind: k.dataset.kind, sort, tag });
-    });
-    const sortSel = document.getElementById('sort');
-    if (sortSel) sortSel.onchange = () => go({ status, kind, sort: sortSel.value, tag });
-    const tagSel = document.getElementById('tag-filter');
-    if (tagSel) tagSel.onchange = () => go({ status, kind, sort, tag: tagSel.value });
+    wire(view, q, sort);
   }
 
-  function go(o) {
-    const q = Object.entries(o).filter(([, v]) => v && v !== 'all' && v !== 'added')
-      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    MT.router.go('#/list' + (q ? '?' + q : ''));
+  function wire(view, q, sort) {
+    const go = patch => {
+      const next = Object.assign({}, q, patch);
+      const parts = [];
+      for (const [k, v] of Object.entries(next)) if (v) parts.push(`${k}=${encodeURIComponent(v)}`);
+      MT.router.go('#/library' + (parts.length ? '?' + parts.join('&') : ''));
+    };
+
+    const chips = document.getElementById('kindChips');
+    if (chips) chips.addEventListener('click', e => {
+      const b = e.target.closest('[data-kind]');
+      if (b) go({ kind: b.dataset.kind || '' });
+    });
+
+    const sel = document.getElementById('sortSel');
+    if (sel) sel.onchange = () => go({ sort: sel.value === 'added' ? '' : sel.value });
+
+    const seg = document.getElementById('modeSeg');
+    if (seg) seg.addEventListener('click', e => {
+      const b = e.target.closest('[data-mode]');
+      if (b) { setMode(b.dataset.mode); MT.router.resolve(); }
+    });
+
+    view.addEventListener('click', e => {
+      const row = e.target.closest('[data-uid]');
+      if (row) MT.inspector.show(row.dataset.uid);
+    });
+    void sort;
+  }
+
+  function firstRun(view) {
+    const needsKey = !MT.config.hasKey('tmdb');
+    MT.ui.crumb(['Library']);
+    MT.ui.paneActions('');
+    view.innerHTML = `
+      <div class="firstrun">
+        <h1>An index of everything<br>you mean to get to.</h1>
+        <p class="lede">Films, television, games and anime in one list — with release dates that never
+        pretend to know more than they do, ratings from several places kept in their own units, and
+        recommendations built from your own taste.</p>
+
+        ${needsKey ? `
+          <div class="warnbox">
+            <strong>One thing first</strong>
+            MovieTrak needs a free TMDB API key to search. It takes about a minute and no card is required.
+          </div>
+          <ol>
+            <li>Create an account at <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>.</li>
+            <li>Open <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a> and request a key.</li>
+            <li>Paste the <b>API Key (v3 auth)</b> into MovieTrak’s settings.</li>
+          </ol>
+          <p style="margin-top:var(--mt-space-6)"><a class="btn btn--primary" href="#/settings">Paste my key →</a></p>
+        ` : `
+          <ol>
+            <li>Press <kbd>/</kbd> to jump to the index filter, or open <a href="#/search">Search</a>.</li>
+            <li>Type a title — films, television and games are searched at once.</li>
+            <li>Press <kbd>⏎</kbd> to add the top result.</li>
+          </ol>
+          <p style="margin-top:var(--mt-space-6)" class="actions">
+            <a class="btn btn--primary" href="#/search">Find something</a>
+            <a class="btn" href="#/settings">Settings</a>
+          </p>
+        `}
+
+        <div class="warnbox" style="margin-top:var(--mt-space-7)">
+          <strong>Everything is stored in this browser</strong>
+          No account, no server. That makes it fast and private — and it also means clearing site data,
+          or Safari’s seven-day idle cleanup, will erase it. Export from Settings, or set a passphrase
+          to sync an encrypted copy through your repository.
+        </div>
+      </div>`;
   }
 
   return { render };

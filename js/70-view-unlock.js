@@ -35,7 +35,7 @@ MT.viewUnlock = (function () {
     view.innerHTML = `
       <div class="firstrun">
         <h1>Set a passphrase</h1>
-        <p class="firstrun__lede">
+        <p class="lede">
           Your library is encrypted in this browser before it ever leaves it, then committed to
           <span class="num">${esc(MT.cloud.repo() || 'your repository')}</span>. Enter the same passphrase on any
           other machine and everything comes back.
@@ -71,13 +71,13 @@ MT.viewUnlock = (function () {
             Leave it off on a shared machine.</div>
         </div>
 
-        <p style="display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:var(--s-5)">
+        <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap;margin-top:var(--mt-space-5)">
           <button class="btn btn--primary" id="do-setup">
             ${localCount ? `Encrypt and publish ${localCount} titles` : 'Set passphrase'}
           </button>
           <a class="btn btn--ghost" href="#/">Skip — keep everything local</a>
         </p>
-        <div id="setup-msg" style="margin-top:var(--s-4)"></div>
+        <div id="setup-msg" style="margin-top:var(--mt-space-4)"></div>
       </div>`;
 
     const p1 = document.getElementById('pass1');
@@ -138,7 +138,7 @@ MT.viewUnlock = (function () {
     view.innerHTML = `
       <div class="firstrun">
         <h1>Unlock your library</h1>
-        <p class="firstrun__lede">
+        <p class="lede">
           ${remote.exists
             ? `An encrypted library is published in <span class="num">${esc(MT.cloud.repo())}</span>${when ? `, last updated ${esc(when)}` : ''}${remote.counts ? ` — ${remote.counts.items} titles` : ''}.`
             : 'No published library was found for this repository.'}
@@ -164,13 +164,13 @@ MT.viewUnlock = (function () {
           </label>
         </div>
 
-        <p style="display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:var(--s-5)">
+        <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap;margin-top:var(--mt-space-5)">
           <button class="btn btn--primary" id="do-unlock">Unlock</button>
           <a class="btn btn--ghost" href="#/unlock?mode=setup">Set a new passphrase instead</a>
           <a class="btn btn--ghost" href="#/">Work locally</a>
         </p>
 
-        <p class="dim" style="font-size:var(--t-xs);margin-top:var(--s-6);max-width:66ch">
+        <p class="faint" style="font-size:var(--mt-fs-micro);margin-top:var(--mt-space-6);max-width:66ch">
           Nothing is being checked against a stored password — there isn’t one. Your passphrase derives the
           key that decrypts the file. If it decrypts, it was right.
         </p>

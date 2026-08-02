@@ -1,212 +1,220 @@
-/* ── Reset, shell, typography ─────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   Base, the three-pane shell, and the responsive collapse.
+   ══════════════════════════════════════════════════════════════════════════ */
 
 *, *::before, *::after { box-sizing: border-box; }
-* { margin: 0; }
+* { margin: 0; padding: 0; }
 
-/* The UA stylesheet's [hidden] rule is a bare attribute selector, so ANY class
-   that sets display beats it. Every component below that uses display:flex or
-   display:grid would otherwise ignore the hidden attribute entirely. */
+/* The UA [hidden] rule is a bare attribute selector, so any class setting
+   display beats it. Without this, every flex/grid component ignores hidden. */
 [hidden] { display: none !important; }
 
-html { -webkit-text-size-adjust: 100%; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
 body {
-  background: var(--ink-000);
-  color: var(--bone-200);
-  font: var(--t-base)/1.55 var(--face-ui);
-  font-synthesis-weight: none;
+  background-color: var(--mt-surface-canvas);
+  background-image: var(--mt-tank-1), var(--mt-tank-2);
+  background-attachment: fixed;
+  color: var(--mt-text-primary);
+  font-family: var(--mt-font-sans);
+  font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  min-height: 100dvh;
-  overflow-x: hidden;           /* the page body never scrolls sideways */
+  text-rendering: optimizeLegibility;
 }
 
-/* A faint film grain over the whole field. Static, cheap, no image request:
-   two offset radial gradients at very low alpha. Keeps large flat blacks from
-   looking like dead pixels on OLED. */
-body::before {
-  content: "";
-  position: fixed; inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: .5;
-  background-image:
-    radial-gradient(circle at 17% 23%, rgba(255,255,255,.014) 0 1px, transparent 1px),
-    radial-gradient(circle at 71% 62%, rgba(255,255,255,.010) 0 1px, transparent 1px);
-  background-size: 3px 3px, 5px 5px;
-}
-
-img, svg { display: block; max-width: 100%; }
-img { height: auto; background: var(--ink-050); }
-
-button, input, select, textarea { font: inherit; color: inherit; }
-button { background: none; border: 0; cursor: pointer; }
-
+button, input, textarea, select { font: inherit; color: inherit; background: none; border: 0; }
+button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
-a:hover { color: var(--amber-100); }
+h1, h2, h3 { font-weight: 600; }
+img { display: block; max-width: 100%; }
 
-:focus-visible {
-  outline: 2px solid var(--amber-200);
-  outline-offset: 2px;
+.mono, .num {
+  font-family: var(--mt-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
-::selection { background: var(--amber-300); color: var(--ink-000); }
+::selection { background: var(--mt-selection); }
+:focus-visible { outline: 2px solid var(--mt-focus-ring); outline-offset: 1px; border-radius: var(--mt-radius-sm); }
 
-/* ── Layout shell ─────────────────────────────────────────────────────── */
-
-.shell {
-  position: relative; z-index: 2;
-  display: flex; flex-direction: column;
-  min-height: 100dvh;
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb {
+  background: var(--mt-line-rule); border-radius: 9px;
+  border: 3px solid transparent; background-clip: content-box;
 }
-
-.shell__bar {
-  position: sticky; top: 0; z-index: var(--z-bar);
-  display: flex; align-items: center; gap: var(--s-5);
-  height: var(--bar-h);
-  padding: 0 var(--s-5);
-  background: color-mix(in srgb, var(--ink-000) 88%, transparent);
-  backdrop-filter: blur(12px) saturate(1.4);
-  border-bottom: 1px solid var(--rule-faint);
-}
-
-.brand { display: flex; align-items: center; gap: var(--s-2); flex: none; }
-.brand:hover { color: inherit; }
-.brand__mark {
-  width: 11px; height: 11px;
-  background: var(--amber-200);
-  /* An aperture blade, not a circle. */
-  clip-path: polygon(50% 0, 100% 35%, 82% 100%, 18% 100%, 0 35%);
-}
-.brand__word {
-  font: 600 var(--t-sm)/1 var(--face-ui);
-  letter-spacing: .16em; text-transform: uppercase;
-  color: var(--bone-100);
-}
-@media (max-width: 900px) { .brand__word { display: none; } }
-
-.shell__nav {
-  display: flex; align-items: center; gap: var(--s-4);
-  margin-left: auto; flex: none;
-  font-size: var(--t-sm);
-}
-.shell__nav a {
-  position: relative;
-  color: var(--bone-300);
-  padding: var(--s-2) 0;
-  white-space: nowrap;
-  transition: color var(--fast) var(--ease);
-}
-.shell__nav a:hover { color: var(--bone-100); }
-.shell__nav a[aria-current="page"] { color: var(--amber-100); }
-.shell__nav a[aria-current="page"]::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
-  height: 1px; background: var(--amber-200);
-}
-@media (max-width: 780px) {
-  .shell__bar { gap: var(--s-3); padding: 0 var(--s-3); }
-  .shell__nav { gap: var(--s-3); font-size: var(--t-xs); }
-  .shell__nav a[data-nav="stats"],
-  .shell__nav a[data-nav="people"] { display: none; }
-}
-
-.view {
-  flex: 1;
-  width: 100%;
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: var(--s-6) var(--s-5) var(--s-8);
-}
-@media (max-width: 780px) { .view { padding: var(--s-5) var(--s-3) var(--s-7); } }
-.view:focus { outline: none; }
-
-/* ── Typography ───────────────────────────────────────────────────────── */
-
-h1, h2, h3 {
-  font-family: var(--face-title);
-  font-weight: 600;
-  color: var(--bone-100);
-  line-height: 1.15;
-  letter-spacing: -.01em;
-}
-h1 { font-size: var(--t-xl); }
-h2 { font-size: var(--t-lg); }
-h3 { font-size: var(--t-md); }
-
-/* The section-header motif: small caps label, then a hairline running to the
-   edge. Used everywhere a group of things starts. It is the main structural
-   device in the design, so it earns its own class. */
-.rulehead {
-  display: flex; align-items: baseline; gap: var(--s-3);
-  margin-bottom: var(--s-4);
-}
-.rulehead__label {
-  font: 500 var(--t-xs)/1 var(--face-ui);
-  letter-spacing: .18em; text-transform: uppercase;
-  color: var(--bone-300);
-  white-space: nowrap;
-}
-.rulehead__rule { flex: 1; height: 1px; background: var(--rule-faint); }
-.rulehead__aside {
-  font: var(--t-xs)/1 var(--face-mono);
-  color: var(--bone-400);
-  white-space: nowrap;
-}
-.rulehead a.rulehead__aside:hover { color: var(--amber-100); }
-
-.num { font-family: var(--face-mono); font-variant-numeric: tabular-nums; }
-
-.prose { max-width: var(--measure); color: var(--bone-200); }
-.prose p + p { margin-top: var(--s-3); }
-.prose a { color: var(--amber-100); text-decoration: underline; text-underline-offset: 2px; }
-
-.muted { color: var(--bone-300); }
-.dim   { color: var(--bone-400); }
+::-webkit-scrollbar-track { background: transparent; }
 
 .sr {
-  position: absolute; width: 1px; height: 1px;
-  padding: 0; overflow: hidden; clip: rect(0 0 0 0);
-  white-space: nowrap; border: 0;
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
 }
 
-/* ── Colophon ─────────────────────────────────────────────────────────── */
+/* ── The shell ─────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--mt-w-tree) minmax(0, 1fr) var(--mt-w-inspector);
+  height: 100vh; height: 100dvh;
+}
+.pane { min-width: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+.pane-h {
+  height: var(--mt-h-bar); flex: 0 0 var(--mt-h-bar);
+  display: flex; align-items: center; gap: var(--mt-space-3);
+  padding: 0 var(--mt-space-4) 0 var(--mt-space-5);
+  border-bottom: var(--mt-rule-w) solid var(--mt-line-hairline);
+}
+
+.scroll {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--mt-line-rule) transparent;
+}
+
+.caps {
+  font-size: var(--mt-fs-micro); letter-spacing: var(--mt-tracking-caps);
+  text-transform: uppercase; color: var(--mt-text-muted); font-weight: 600;
+}
+.muted { color: var(--mt-text-muted); }
+.faint { color: var(--mt-text-faint); }
+
+/* ── Theme switch — fixed size, so toggling reflows nothing ────────────── */
+
+.tswitch {
+  display: flex; flex: 0 0 auto; gap: 1px; padding: 2px;
+  background: var(--mt-surface-sunk);
+  border: var(--mt-rule-w) solid var(--mt-line-hairline);
+  border-radius: var(--mt-radius);
+}
+.tswitch button {
+  width: 52px; height: 22px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  border-radius: var(--mt-radius-sm);
+  font-size: 10px; letter-spacing: .02em; color: var(--mt-text-muted);
+}
+.tswitch button svg { width: 11px; height: 11px; flex: 0 0 11px; }
+.tswitch button:hover { color: var(--mt-text-primary); }
+.tswitch button[aria-pressed="true"] {
+  background: var(--mt-surface-raised); color: var(--mt-text-primary);
+  box-shadow: var(--mt-shadow-inset-top), 0 1px 1px rgba(0, 0, 0, .10);
+}
+
+.icobtn {
+  width: 22px; height: 22px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  border-radius: var(--mt-radius-sm); color: var(--mt-text-muted);
+}
+.icobtn:hover { background: var(--mt-surface-hover); color: var(--mt-text-primary); }
+.icobtn svg { width: 14px; height: 14px; }
+
+/* ── Brand ─────────────────────────────────────────────────────────────── */
+
+.brand { display: flex; align-items: baseline; gap: var(--mt-space-2); flex: 1; min-width: 0; }
+.brand b {
+  font-family: var(--mt-font-serif); font-size: 15px; font-weight: 600;
+  letter-spacing: -.01em; color: var(--mt-text-primary);
+}
+.brand i {
+  font-style: normal; font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--mt-teal-text);
+  border: var(--mt-rule-w) solid var(--mt-teal-edge);
+  border-radius: var(--mt-radius-sm); padding: 1px 4px;
+}
+
+/* ── Views live in the middle pane ─────────────────────────────────────── */
+
+.view { display: none; }
+.view.on { display: block; }
+.mobilebar { display: none; }
+.scrim { display: none; }
+
+/* ── Colophon: attribution that must appear on every route ─────────────── */
 
 .colophon {
-  border-top: 1px solid var(--rule-faint);
-  padding: var(--s-5);
-  display: flex; flex-direction: column; gap: var(--s-2);
-  align-items: center; text-align: center;
+  border-top: var(--mt-rule-w) solid var(--mt-line-hairline);
+  padding: var(--mt-space-5) var(--mt-space-6) var(--mt-space-7);
+  font-size: var(--mt-fs-micro); line-height: 1.6; color: var(--mt-text-faint);
 }
-.colophon__legal {
-  font-size: var(--t-xs); line-height: 1.5;
-  color: var(--bone-400);
-  max-width: 76ch;
-  display: flex; align-items: center; justify-content: center;
-  gap: var(--s-2); flex-wrap: wrap;
-}
-.colophon__legal a { color: var(--bone-300); text-decoration: underline; text-underline-offset: 2px; }
-.colophon__legal a:hover { color: var(--amber-100); }
-.colophon__meta {
-  font: var(--t-xs)/1 var(--face-mono);
-  color: var(--bone-400);
-  display: flex; gap: var(--s-4); flex-wrap: wrap; justify-content: center;
-}
-.colophon__meta .stale { color: var(--warn); }
-
-/* The TMDB mark, drawn in CSS so nothing is fetched and nothing can 404.
-   Their primary logo is a horizontal bar-gradient; this is a neutral
-   stand-in carrying the wordmark, paired with the required disclaimer. */
+.colophon p + p { margin-top: var(--mt-space-2); }
+.colophon a { color: var(--mt-text-muted); text-decoration: underline; text-underline-offset: 2px; }
+.colophon a:hover { color: var(--mt-teal-text); }
 .tmdb-logo {
-  display: inline-block; width: 46px; height: 12px; flex: none;
+  display: inline-block; width: 40px; height: 10px; vertical-align: -1px; margin-right: 5px;
   background: linear-gradient(90deg, #90cea1 0%, #01b4e4 60%, #0d253f 100%);
   border-radius: 1px;
 }
 
-.banner {
-  border-bottom: 1px solid var(--rule);
-  background: var(--amber-wash);
-  color: var(--amber-100);
-  padding: var(--s-3) var(--s-5);
-  font-size: var(--t-sm);
-  display: flex; align-items: center; gap: var(--s-3);
+/* ══ RESPONSIVE — what the three panes do when they cannot all fit ════════
+   ≥1181px  three panes side by side.
+   ≤1180px  the inspector detaches into a right-hand overlay sheet, opened by
+            selecting a row, dismissed with Esc or the scrim.
+   ≤820px   the tree detaches too, into a left drawer behind the hamburger.
+   ≤560px   the table sheds Type / Status / Progress / Added. Title, Release
+            and your rating survive, because the date field is the point of
+            the app and is the last thing to go.                            */
+
+@media (max-width: 1180px) {
+  :root { --mt-w-inspector: 0px; }
+  .app { grid-template-columns: var(--mt-w-tree) minmax(0, 1fr); }
+  .insp {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(392px, 100%); z-index: 40;
+    transform: translateX(101%);
+    transition: transform 220ms var(--mt-ease);
+    box-shadow: var(--mt-shadow-drawer);
+  }
+  .insp.open { transform: none; }
+  .insp-close { display: grid; }
+  .scrim {
+    display: block; position: fixed; inset: 0; z-index: var(--mt-z-scrim);
+    background: var(--mt-scrim); opacity: 0; pointer-events: none;
+    transition: opacity 220ms var(--mt-ease);
+  }
+  .scrim.on { opacity: 1; pointer-events: auto; }
 }
-.banner button { color: var(--amber-100); text-decoration: underline; margin-left: auto; }
+
+@media (max-width: 820px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .mobilebar {
+    display: flex; align-items: center; gap: var(--mt-space-4);
+    height: 46px; flex: 0 0 46px; padding: 0 var(--mt-space-5);
+    border-bottom: var(--mt-rule-w) solid var(--mt-line-rule);
+    background: var(--mt-surface-rail);
+    position: relative; z-index: var(--mt-z-bar);
+  }
+  .list-pane { height: 100vh; height: 100dvh; }
+  .tree-pane {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 284px;
+    z-index: var(--mt-z-drawer);
+    transform: translateX(-101%);
+    transition: transform 220ms var(--mt-ease);
+    box-shadow: var(--mt-shadow-drawer);
+  }
+  .tree-pane.open { transform: none; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .col + .col { border-left: 0; border-top: var(--mt-rule-w) solid var(--mt-line-hairline); }
+}
+
+@media (max-width: 560px) {
+  table { min-width: 0; }
+  thead th:first-child { min-width: 0; }
+  thead th[data-drop], tbody td[data-drop] { display: none; }
+  .title-cell .chipart { display: none; }
+  tbody td, thead th { padding-left: var(--mt-space-2); padding-right: var(--mt-space-2); }
+}
+
+@media (max-width: 460px) {
+  .toolbar { padding: var(--mt-space-3) var(--mt-space-5); }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 13px var(--mt-space-4); padding: var(--mt-space-5); }
+  .cu { grid-template-columns: 36px minmax(0, 1fr); padding: var(--mt-space-5); }
+  .cu-r { grid-column: 2; align-items: flex-start; margin-top: 7px; }
+  .track { grid-column: 2; }
+  .ratings { grid-template-columns: 1fr; }
+  .strip { grid-template-columns: repeat(3, 1fr); }
+  .legend { padding: var(--mt-space-4) var(--mt-space-5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .card:hover .poster { transform: none; }
+}

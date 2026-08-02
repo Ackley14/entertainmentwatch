@@ -1,228 +1,158 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Search — the omnibox in the header plus the full #/search screen.
+   #/search — one box across films, television and games.
 
-   This is the path that matters most: "type a title, press Enter, it's on the
-   list." Everything here is arranged around keeping that under three
-   keystrokes and never making it wait on the network to feel done.
-
-   One search box across every medium rather than scoped tabs, because
-   choosing a tab before you've typed is a decision the app can make for you:
-   TMDB's /search/multi covers film and television in one request, and RAWG is
-   queried in parallel only when a games key exists.
+   Your own index is searched first and for free; upstream is queried only
+   after a pause, so typing costs at most one request per source per query.
    ══════════════════════════════════════════════════════════════════════════ */
 
 MT.viewSearch = (function () {
   const esc = MT.util.escapeHtml;
   let inflight = null;
-  let lastResults = [];
+  let results = [];
   let cursor = -1;
 
-  function init() {
-    const input = document.getElementById('omni');
-    const pop = document.getElementById('omni-pop');
-
-    const run = MT.util.debounce(async () => {
-      const q = input.value.trim();
-      if (q.length < 2) { closePop(); return; }
-      await search(q, pop, input);
-    }, 180);
-
-    input.addEventListener('input', run);
-    input.addEventListener('focus', () => { if (lastResults.length && input.value.trim().length >= 2) openPop(); });
-
-    input.addEventListener('keydown', async e => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (!lastResults.length) return;
-        cursor = e.key === 'ArrowDown'
-          ? Math.min(lastResults.length - 1, cursor + 1)
-          : Math.max(0, cursor - 1);
-        paint(pop, input.value.trim());
-        const sel = pop.querySelector('[aria-selected="true"]');
-        if (sel) sel.scrollIntoView({ block: 'nearest' });
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        /* Enter with nothing highlighted adds the top hit. That is the whole
-           "three keystrokes" claim: type, maybe arrow, Enter. */
-        const pick = lastResults[cursor >= 0 ? cursor : 0];
-        if (pick) {
-          await addFromResult(pick);
-          input.value = ''; closePop();
-        } else if (input.value.trim()) {
-          MT.router.go('#/search?q=' + encodeURIComponent(input.value.trim()));
-        }
-        return;
-      }
-      if (e.key === 'Escape') { closePop(); input.blur(); }
-    });
-
-    pop.addEventListener('click', async e => {
-      const addBtn = e.target.closest('[data-add]');
-      const row = e.target.closest('.row');
-      if (addBtn) {
-        e.preventDefault(); e.stopPropagation();
-        const hit = lastResults.find(r => r.stub.uid === addBtn.dataset.add);
-        if (hit) { await addFromResult(hit); paint(pop, input.value.trim()); }
-        return;
-      }
-      if (row) {
-        const hit = lastResults.find(r => r.stub.uid === row.dataset.uid);
-        if (hit) {
-          if (!hit.inLibrary) await addFromResult(hit);
-          closePop();
-          MT.router.go('#/item/' + encodeURIComponent(hit.stub.uid));
-        }
-      }
-    });
-
-    document.addEventListener('click', e => {
-      if (!e.target.closest('.omni')) closePop();
-    });
-
-    function openPop() { pop.hidden = false; document.getElementById('omni').setAttribute('aria-expanded', 'true'); }
-    function closePop() { pop.hidden = true; cursor = -1; document.getElementById('omni').setAttribute('aria-expanded', 'false'); }
-
-    MT.viewSearch._openPop = openPop;
-    MT.viewSearch._closePop = closePop;
-    MT.viewSearch._paint = paint;
-  }
-
-  async function addFromResult(hit) {
-    const item = await MT.ui.addItem(hit.stub, { source: 'search' });
-    hit.inLibrary = item.user.status;
-    return item;
-  }
-
-  /* Query every configured source concurrently. A source that is missing a key
-     or is down contributes nothing and is not an error — the results just come
-     from fewer places. */
-  async function search(q, pop, input) {
-    if (inflight) inflight.abort();
-    inflight = new AbortController();
-    const signal = inflight.signal;
-
-    pop.innerHTML = '<div class="row__group">Searching…</div>';
-    MT.viewSearch._openPop();
-
-    const jobs = [];
-    if (MT.config.hasKey('tmdb')) {
-      jobs.push(MT.tmdb.searchMulti(q, { signal })
-        .then(rs => rs.map(r => ({ stub: MT.normalize.stubFromTmdbSearch(r), pop: r.popularity || 0 })))
-        .catch(e => { if (e.kind !== 'abort') console.warn('[search] tmdb', e.message); return []; }));
-    }
-    if (MT.config.hasKey('rawg')) {
-      jobs.push(MT.rawg.search(q, { signal, limit: 8 })
-        .then(rs => rs.map(r => ({ stub: MT.normalize.stubFromRawgSearch(r), pop: r.added || 0 })))
-        .catch(e => { if (e.kind !== 'abort') console.warn('[search] rawg', e.message); return []; }));
-    }
-
-    if (!jobs.length) {
-      pop.innerHTML = `<div class="row"><div class="row__main">
-        <div class="row__title">No API key yet</div>
-        <div class="row__meta">Add a free TMDB key in Settings to start searching.</div>
-      </div><div class="row__act"><a class="btn btn--sm" href="#/settings">Settings</a></div></div>`;
-      return;
-    }
-
-    let results;
-    try { results = (await Promise.all(jobs)).flat(); }
-    catch (e) { return; }
-    if (signal.aborted) return;
-
-    const owned = new Map();
-    for (const it of await MT.repo.allItems()) owned.set(it.uid, it.user.status);
-
-    results.sort((a, b) => b.pop - a.pop);
-    lastResults = results.slice(0, MT.LIMITS.searchResults).map(r => ({
-      stub: r.stub, inLibrary: owned.get(r.stub.uid) || null,
-    }));
-    cursor = -1;
-    paint(pop, q);
-    void input;
-  }
-
-  function paint(pop, q) {
-    if (!lastResults.length) {
-      pop.innerHTML = `<div class="row"><div class="row__main">
-        <div class="row__title">No matches for “${esc(q)}”</div>
-        <div class="row__meta">Try the original-language title, or check spelling.</div>
-      </div></div>`;
-      return;
-    }
-    const groups = { movie: [], tv: [], game: [] };
-    lastResults.forEach((r, i) => groups[r.stub.kind].push({ r, i }));
-
-    let html = '';
-    for (const [kind, label] of [['movie', 'Films'], ['tv', 'Television'], ['game', 'Games']]) {
-      if (!groups[kind].length) continue;
-      html += `<div class="row__group"><span>${label}</span><span>${groups[kind].length}</span></div>`;
-      for (const { r, i } of groups[kind]) {
-        html += MT.ui.resultRow(r.stub, { selected: i === cursor, inLibrary: r.inLibrary });
-      }
-    }
-    html += `<div class="row__group" style="position:static">
-      <span>Press <span class="num">Enter</span> to add the highlighted result</span>
-      <a href="#/search?q=${encodeURIComponent(q)}">See all →</a></div>`;
-    pop.innerHTML = html;
-  }
-
-  /* ── The full-page version ─────────────────────────────────────────── */
   async function render(params, query) {
     const view = document.getElementById('view');
     const q = (query && query.q) || '';
+    MT.ui.crumb(['Discover', 'Search']);
+    MT.ui.paneActions('');
 
+    const count = await MT.repo.countItems();
     view.innerHTML = `
-      <div class="pagehead">
-        <div>
-          <h1>Search</h1>
-          <div class="pagehead__sub">${q ? `Results for “${esc(q)}”` : 'Find something to watch or play'}</div>
+      <div class="searchbox">
+        <div class="sfield">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+          </svg>
+          <input id="q" type="search" placeholder="Search films, television, games…" spellcheck="false"
+                 autocomplete="off" value="${esc(q)}" aria-label="Search">
+        </div>
+        <div class="shint">
+          <kbd>⏎</kbd> add the highlighted result · <kbd>↑</kbd><kbd>↓</kbd> move ·
+          searching <b>${count}</b> indexed titles, then upstream
         </div>
       </div>
-      <div id="search-results">${q ? MT.ui.skeletonGrid(8) : MT.ui.emptyState({
-        title: 'What are you looking for?',
-        body: 'Use the box at the top — it searches films, television and games at once. Press <span class="num">/</span> from anywhere to jump to it.',
-      })}</div>`;
+      <div id="local"></div>
+      <div id="remote"></div>`;
 
-    if (!q) return;
+    const input = document.getElementById('q');
+    const run = MT.util.debounce(() => go(input.value.trim()), 220);
+    input.addEventListener('input', run);
+    input.addEventListener('keydown', onKey);
+    input.focus();
+    if (q) go(q);
+  }
+
+  async function onKey(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!results.length) return;
+      cursor = e.key === 'ArrowDown' ? Math.min(results.length - 1, cursor + 1) : Math.max(0, cursor - 1);
+      paintCursor();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const pick = results[cursor >= 0 ? cursor : 0];
+      if (!pick) return;
+      if (pick.owned) MT.inspector.show(pick.stub.uid);
+      else { await MT.ui.addItem(pick.stub); pick.owned = true; paint(); }
+    }
+  }
+
+  function paintCursor() {
+    const rows = [...document.querySelectorAll('#remote tbody tr, #local tbody tr')];
+    rows.forEach((r, i) => r.classList.toggle('is-sel', i === cursor));
+    if (rows[cursor]) rows[cursor].scrollIntoView({ block: 'nearest' });
+  }
+
+  async function go(q) {
+    const local = document.getElementById('local');
+    const remote = document.getElementById('remote');
+    if (!local) return;
+    if (q.length < 2) { local.innerHTML = ''; remote.innerHTML = ''; results = []; return; }
+
+    /* Local first — instant, free, and usually what you meant. */
+    const all = await MT.repo.allItems();
+    const needle = q.toLowerCase();
+    const hits = all.filter(i =>
+      i.title.toLowerCase().includes(needle) ||
+      (i.originalTitle || '').toLowerCase().includes(needle)).slice(0, 12);
+    local.innerHTML = hits.length
+      ? MT.ui.groupHead('In your index', hits.length) + MT.ui.table(hits, MT.inspector.current)
+      : '';
+
     if (!MT.config.hasKey('tmdb')) {
-      document.getElementById('search-results').innerHTML = MT.ui.emptyState({
-        title: 'No TMDB key yet',
-        body: 'MovieTrak needs a free TMDB key to search. It takes about a minute.',
+      remote.innerHTML = MT.ui.emptyState({
+        title: 'No TMDB key',
+        body: 'Add a free key in Settings to search beyond your own index.',
         actions: '<a class="btn btn--primary" href="#/settings">Open settings</a>',
       });
       return;
     }
 
-    const jobs = [MT.tmdb.searchMulti(q).then(rs => rs.map(MT.normalize.stubFromTmdbSearch)).catch(() => [])];
+    remote.innerHTML = MT.ui.groupHead('Elsewhere') + '<div class="miss muted">Searching…</div>';
+    if (inflight) inflight.abort();
+    inflight = new AbortController();
+    const signal = inflight.signal;
+
+    const jobs = [MT.tmdb.searchMulti(q, { signal })
+      .then(rs => rs.map(r => ({ stub: MT.normalize.stubFromTmdbSearch(r), pop: r.popularity || 0 })))
+      .catch(e => { if (e.kind !== 'abort') console.warn('[search] tmdb', e.message); return []; })];
     if (MT.config.hasKey('rawg')) {
-      jobs.push(MT.rawg.search(q, { limit: 12 }).then(rs => rs.map(MT.normalize.stubFromRawgSearch)).catch(() => []));
-    }
-    const stubs = (await Promise.all(jobs)).flat();
-    const owned = new Map();
-    for (const it of await MT.repo.allItems()) owned.set(it.uid, it.user.status);
-
-    const host = document.getElementById('search-results');
-    if (!stubs.length) {
-      host.innerHTML = MT.ui.emptyState({ title: `Nothing found for “${esc(q)}”`,
-        body: 'Try the original-language title, or a different spelling.' });
-      return;
+      jobs.push(MT.rawg.search(q, { signal, limit: 8 })
+        .then(rs => rs.map(r => ({ stub: MT.normalize.stubFromRawgSearch(r), pop: r.added || 0 })))
+        .catch(() => []));
     }
 
-    host.innerHTML = '<div class="grid">' + stubs.map(s => MT.ui.posterCard(
-      owned.has(s.uid) ? Object.assign({}, s, { user: { status: owned.get(s.uid) } }) : s,
-      { extra: owned.has(s.uid) ? '' : `<button class="btn btn--sm" data-add="${esc(s.uid)}">Add</button>` }
-    )).join('') + '</div>';
+    let found;
+    try { found = (await Promise.all(jobs)).flat(); } catch (_) { return; }
+    if (signal.aborted) return;
 
-    host.addEventListener('click', async e => {
-      const btn = e.target.closest('[data-add]');
-      if (!btn) return;
-      e.preventDefault(); e.stopPropagation();
-      const stub = stubs.find(s => s.uid === btn.dataset.add);
-      if (stub) { await MT.ui.addItem(stub); btn.outerHTML = '<span class="row__in">✓ Added</span>'; }
-    });
+    const owned = new Set(all.map(i => i.uid));
+    found.sort((a, b) => b.pop - a.pop);
+    results = hits.map(h => ({ stub: h, owned: true }))
+      .concat(found.filter(f => !owned.has(f.stub.uid)).slice(0, 20).map(f => ({ stub: f.stub, owned: false })));
+    cursor = -1;
+    paint();
   }
 
-  return { init, render };
+  function paint() {
+    const remote = document.getElementById('remote');
+    const fresh = results.filter(r => !r.owned);
+    if (!fresh.length) {
+      remote.innerHTML = MT.ui.groupHead('Elsewhere') +
+        '<div class="miss muted">Nothing new — everything matching is already in your index.</div>';
+      return;
+    }
+    remote.innerHTML = MT.ui.groupHead('Elsewhere', fresh.length) + fresh.map(r => `
+      <div class="miss" data-add="${esc(r.stub.uid)}">
+        ${MT.ui.chipart(r.stub)}
+        <div style="min-width:0">
+          <div style="font-weight:500">${esc(r.stub.title)}</div>
+          <div class="muted" style="font-size:var(--mt-fs-mini);display:flex;gap:8px;align-items:center">
+            ${MT.ui.kindTag(r.stub)} ${MT.ui.dateField(r.stub.release)}
+          </div>
+        </div>
+        <span class="add">Add</span>
+      </div>`).join('');
+
+    remote.onclick = async e => {
+      const row = e.target.closest('[data-add]');
+      if (!row) return;
+      const hit = results.find(r => r.stub.uid === row.dataset.add);
+      if (!hit) return;
+      await MT.ui.addItem(hit.stub);
+      hit.owned = true;
+      paint();
+      MT.inspector.show(hit.stub.uid);
+    };
+    const local = document.getElementById('local');
+    if (local) local.onclick = e => {
+      const r = e.target.closest('[data-uid]');
+      if (r) MT.inspector.show(r.dataset.uid);
+    };
+  }
+
+  return { render };
 })();

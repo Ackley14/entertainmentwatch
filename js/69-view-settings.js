@@ -40,7 +40,7 @@ MT.viewSettings = (function () {
         </div>` : ''}
 
         <section class="section">
-          ${MT.ui.ruleHead('API keys')}
+          ${MT.ui.groupHead('API keys')}
           <div class="warnbox">
             <strong>Keys live in this browser only</strong>
             Anything you paste here is stored locally and takes precedence over whatever is committed
@@ -51,19 +51,19 @@ MT.viewSettings = (function () {
         </section>
 
         <section class="section">
-          ${MT.ui.ruleHead('Your data')}
+          ${MT.ui.groupHead('Your data')}
           <div class="warnbox">
             <strong>There is no server</strong>
             Everything is stored in this browser. Clearing site data erases it, and Safari deletes local
             storage for sites you have not visited in seven days. Export is the only backup.
             ${backup ? `<br><br>Last export: <b>${backup.last ? MT.util.timeAgo(backup.last) : 'never'}</b>${backup.overdue ? ' — overdue' : ''}.` : ''}
           </div>
-          <p style="display:flex;gap:var(--s-2);flex-wrap:wrap">
+          <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
             <button class="btn btn--primary" id="export">Export library (${counts.items})</button>
             <button class="btn" id="import-btn">Import from file…</button>
             <input type="file" id="import" accept="application/json,.json" hidden>
           </p>
-          <p class="field__help" style="margin-top:var(--s-3)">
+          <p class="field__help" style="margin-top:var(--mt-space-3)">
             Import <b>replaces</b> everything currently stored. Export first if you are unsure.
             The file also carries your alert history, so importing onto a new browser will not
             re-announce every change you have already seen.
@@ -71,12 +71,12 @@ MT.viewSettings = (function () {
         </section>
 
         <section class="section">
-          ${MT.ui.ruleHead('Sync across machines')}
+          ${MT.ui.groupHead('Sync across machines')}
           ${syncBlock(sync)}
         </section>
 
         <section class="section">
-          ${MT.ui.ruleHead('Region & content')}
+          ${MT.ui.groupHead('Region & content')}
           <div class="field">
             <label class="field__label" for="region">Region</label>
             <div class="field__help">Decides which release dates, certifications and streaming services you see.</div>
@@ -92,7 +92,7 @@ MT.viewSettings = (function () {
         </section>
 
         <section class="section">
-          ${MT.ui.ruleHead('Diagnostics')}
+          ${MT.ui.groupHead('Diagnostics')}
           <div class="deck">
             <dl>
               <dt>Storage engine</dt><dd>${MT.db.isFallback() ? 'localStorage (fallback)' : 'IndexedDB'}</dd>
@@ -101,26 +101,26 @@ MT.viewSettings = (function () {
               <dt>Origin</dt><dd>${esc(location.protocol === 'file:' ? 'file:// (local copy)' : location.origin)}</dd>
             </dl>
             ${['rawg', 'omdb'].filter(s => budgets[s]).map(s => `
-              <div style="margin-top:var(--s-3)">
+              <div style="margin-top:var(--mt-space-3)">
                 <div class="field__help">${s.toUpperCase()} requests from this browser this ${budgets[s].period}:
                   <span class="num">${budgets[s].used} / ${budgets[s].cap}</span></div>
-                <div class="gauge"><div class="gauge__f ${budgets[s].used / budgets[s].cap > 0.8 ? 'gauge__f--hot' : ''}"
+                <div class="gauge"><div class="${budgets[s].used / budgets[s].cap > 0.8 ? 'hot' : ''}"
                   style="width:${Math.min(100, Math.round(budgets[s].used / budgets[s].cap * 100))}%"></div></div>
               </div>`).join('')}
-            <p class="field__help" style="margin-top:var(--s-3)">
+            <p class="field__help" style="margin-top:var(--mt-space-3)">
               These count only what this browser has asked for. Because the committed keys are shared by
               anyone using this copy of MovieTrak, the real quota may be lower than shown.
             </p>
           </div>
-          <p style="margin-top:var(--s-4);display:flex;gap:var(--s-2);flex-wrap:wrap">
+          <p style="margin-top:var(--mt-space-4);display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
             <button class="btn" id="clear-cache">Clear cached responses</button>
             <button class="btn btn--danger" id="wipe">Erase everything</button>
           </p>
         </section>
 
         <section class="section">
-          ${MT.ui.ruleHead('About')}
-          <div class="prose" style="font-size:var(--t-sm)">
+          ${MT.ui.groupHead('About')}
+          <div class="prose" style="font-size:var(--mt-fs-sm)">
             <p>MovieTrak is a personal, non-commercial tool. It stores everything locally and has no server.</p>
             <p>It does <b>not</b> search IMDb — IMDb has no free API and blocks browser access to its data
             exports, so search is powered by TMDB. Every result carries its IMDb id, which is how the IMDb
@@ -141,14 +141,14 @@ MT.viewSettings = (function () {
      decrypts or it doesn't. */
   function syncBlock(sync) {
     return `
-      <p class="field__help" style="margin-bottom:var(--s-4);max-width:70ch">
+      <p class="field__help" style="margin-bottom:var(--mt-space-4);max-width:70ch">
         Your library is encrypted in this browser and committed to your repository as
         <span class="num">${esc(sync.path)}</span>. Enter the same passphrase on any other machine to load it.
         The passphrase is never stored anywhere — not even as a hash — so there is nothing in the repository
         that could be cracked, and no way to reset it if you forget it.
       </p>
 
-      <div class="deck" style="margin-bottom:var(--s-4)">
+      <div class="deck" style="margin-bottom:var(--mt-space-4)">
         <dl>
           <dt>Status</dt><dd>${sync.unlocked ? 'Unlocked' : 'Locked'}</dd>
           <dt>Repository</dt><dd>${esc(sync.repo || 'not set')}</dd>
@@ -176,7 +176,7 @@ MT.viewSettings = (function () {
         <input id="gh-token" type="password" spellcheck="false" autocomplete="off"
                placeholder="${sync.hasToken ? '•••••••• stored in this browser' : 'github_pat_…'}">
         <div class="field__state" id="gh-state">${sync.hasToken ? '● Token stored' : '○ No token — read-only'}</div>
-        <p style="margin-top:var(--s-2)">
+        <p style="margin-top:var(--mt-space-2)">
           <button class="btn btn--sm" id="gh-save">Save &amp; test</button>
           ${sync.hasToken ? '<button class="btn btn--sm btn--ghost" id="gh-clear">Remove token</button>' : ''}
         </p>
@@ -189,7 +189,7 @@ MT.viewSettings = (function () {
         any machine you do not control.
       </div>
 
-      <p style="display:flex;gap:var(--s-2);flex-wrap:wrap">
+      <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
         ${sync.unlocked
           ? `<button class="btn btn--primary" id="sync-push">Publish now</button>
              <button class="btn" id="sync-pull">Load published copy</button>
@@ -203,14 +203,14 @@ MT.viewSettings = (function () {
     const stored = MT.config.keyIsLocal(k.id);
     const active = MT.config.hasKey(k.id);
     return `<div class="field">
-      <label class="field__label" for="key-${k.id}">${k.label}${k.required ? ' <span class="dim">(required)</span>' : ' <span class="dim">(optional)</span>'}</label>
+      <label class="field__label" for="key-${k.id}">${k.label}${k.required ? ' <span class="faint">(required)</span>' : ' <span class="faint">(optional)</span>'}</label>
       <div class="field__help">${esc(k.help)} <a href="${k.link}" target="_blank" rel="noopener">${k.linkLabel} ↗</a></div>
       <input id="key-${k.id}" type="text" spellcheck="false" placeholder="${active && !stored ? 'Using the key committed in the repository' : 'Paste your key'}"
              value="${stored ? esc(MT.config.key(k.id)) : ''}">
       <div class="field__state ${active ? 'field__state--ok' : ''}" id="state-${k.id}">
         ${active ? (stored ? '● Using your key' : '● Using the repository key') : '○ Not configured'}
       </div>
-      <p style="margin-top:var(--s-2)">
+      <p style="margin-top:var(--mt-space-2)">
         <button class="btn btn--sm" data-verify="${k.id}">Save &amp; test</button>
         ${stored ? `<button class="btn btn--sm btn--ghost" data-clearkey="${k.id}">Clear</button>` : ''}
       </p>
