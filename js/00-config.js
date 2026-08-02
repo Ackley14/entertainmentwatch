@@ -218,5 +218,4 @@ MT.LIMITS = {
   driftHistory: 20,
   feedPrimary: 50,
   searchResults: 30,
-  backupNagDays: 7,
 };

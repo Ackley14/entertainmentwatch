@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Refresh scheduling, the sweep runner, and export/import.
+   Refresh scheduling and the sweep runner.
 
    A static page has no background worker, so "keeping up to date" means: when
    the app is open, spend a bounded number of requests on whatever is most
@@ -195,56 +195,7 @@ MT.sync = (function () {
   function cancel() { if (abort) abort.abort(); }
   const isSweeping = () => sweeping;
 
-  /* ── Export ────────────────────────────────────────────────────────────
-     Blob + <a download> works on file:// as well as http://. The import side
-     MUST be an <input type="file"> — fetch() of a relative path is blocked on
-     file://, so there is no other way to read a local file. */
-  async function exportToFile() {
-    const doc = await MT.repo.exportAll();
-    const json = JSON.stringify(doc, null, 1);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `movietrak-${stamp}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    await MT.repo.metaSet('sync.lastExportAt', Date.now());
-    return doc.counts;
-  }
-
-  function importFromFile(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('Could not read that file.'));
-      reader.onload = async () => {
-        try {
-          const doc = JSON.parse(reader.result);
-          const counts = await MT.repo.importAll(doc);
-          resolve(counts);
-        } catch (e) { reject(e); }
-      };
-      reader.readAsText(file);
-    });
-  }
-
-  /* Storage here is genuinely fragile — Safari's ITP deletes all script-
-     writable storage after seven days without a visit, and eviction is
-     all-or-nothing per origin everywhere. A nag is not a guarantee, so past
-     the threshold this exports automatically. */
-  async function backupCheck() {
-    const last = (await MT.repo.metaGet('sync.lastExportAt')) || 0;
-    const count = await MT.repo.countItems();
-    if (!count) return null;
-    const days = Math.floor((Date.now() - last) / 86400000);
-    return { last, days, overdue: days >= MT.LIMITS.backupNagDays };
-  }
-
   return {
     tierOf, retier, urgency, sweep, refreshItem, cancel, isSweeping,
-    exportToFile, importFromFile, backupCheck,
   };
 })();

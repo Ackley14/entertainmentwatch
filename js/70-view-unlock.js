@@ -47,6 +47,7 @@ MT.gate = (function () {
     show(`<h1>Checking for your library…</h1><div class="skel skel--line" style="width:60%"></div>`);
     remote = await MT.cloud.peek();
 
+    if (opts.mode === 'token') return replaceToken();
     if (opts.mode === 'setup' || !remote.exists) return setup();
     return signIn();
   }
@@ -243,6 +244,62 @@ MT.gate = (function () {
     await MT.boot.startApp();
     MT.ui.banner('Working offline — changes stay in this browser only and will be replaced the next time you sign in.',
       { actionLabel: 'Sign in', onAction: () => open() });
+  }
+
+  /* Tokens expire. When one does, saving stops — which is the only thing that
+     can silently break the whole model, so it gets its own screen rather than
+     a message the user has to decode. */
+  function replaceToken() {
+    show(`
+      <div class="gate__brand"><b>MovieTrak</b><i>Tide</i></div>
+      <h1>Saving has stopped</h1>
+      <p class="lede">GitHub rejected the stored token, so changes are no longer reaching
+      <span class="mono">${esc(MT.cloud.repo())}</span>. This usually means it expired.
+      Create a new one and paste it here — everything else stays as it is.</p>
+
+      <div class="field">
+        <label class="field__label" for="gtok2">New GitHub token</label>
+        <div class="field__help">
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a fine-grained token</a>
+          scoped to only this repository, with <b>Contents: read and write</b>.
+        </div>
+        <input id="gtok2" type="password" spellcheck="false" autocomplete="off" placeholder="github_pat_…">
+        <div class="field__state" id="gtok2msg"></div>
+      </div>
+
+      <div class="actions" style="margin-top:var(--mt-space-5)">
+        <button class="btn btn--primary" id="gSaveTok">Save token</button>
+        <button class="btn btn--ghost" id="gWorkLocal">Not now</button>
+      </div>`);
+
+    document.getElementById('gSaveTok').onclick = async () => {
+      const input = document.getElementById('gtok2');
+      const msg = document.getElementById('gtok2msg');
+      const btn = document.getElementById('gSaveTok');
+      const t = input.value.trim();
+      if (!t) return;
+      btn.disabled = true; btn.textContent = 'Checking…';
+      MT.cloud.setVaultToken(t);
+      const v = await MT.cloud.verifyToken();
+      if (!v.ok) {
+        MT.cloud.setVaultToken(null);
+        btn.disabled = false; btn.textContent = 'Save token';
+        msg.textContent = '✕ ' + v.reason;
+        msg.className = 'field__state field__state--bad';
+        return;
+      }
+      try {
+        await MT.cloud.publish({ force: true, message: 'MovieTrak: rotate token' });
+        hide();
+        document.getElementById('banner').hidden = true;
+        MT.ui.toast('Saving again');
+      } catch (e) {
+        btn.disabled = false; btn.textContent = 'Save token';
+        msg.textContent = '✕ ' + (e.message || String(e));
+        msg.className = 'field__state field__state--bad';
+      }
+    };
+    document.getElementById('gWorkLocal').onclick = () => hide();
   }
 
   function signOut() {

@@ -27,16 +27,22 @@ MT.boot = (function () {
     });
   }
 
-  async function refreshFooter() {
+  /* The only place saving is ever mentioned. There is nothing to press. */
+  async function refreshFooter(state) {
     try {
-      const backup = await MT.sync.backupCheck();
-      const sweep = await MT.repo.metaGet('sync.lastSweepAt');
       const el = document.getElementById('footMeta');
       if (!el) return;
-      const bits = [`Last checked ${MT.util.timeAgo(sweep)}`];
-      if (backup) bits.push(`last export ${backup.last ? MT.util.timeAgo(backup.last) : 'never'}${backup.overdue ? ' — overdue' : ''}`);
-      if (MT.cloud.configured() && MT.crypto.isUnlocked()) bits.push('sync unlocked');
+      const sweep = await MT.repo.metaGet('sync.lastSweepAt');
+      const saved = await MT.repo.metaGet('cloud.lastPushAt');
+      const bits = [];
+      if (MT.crypto.isUnlocked()) {
+        bits.push(state === 'saving' ? 'Saving…'
+          : state === 'error' ? 'Could not save — see Settings'
+          : saved ? `Saved ${MT.util.timeAgo(saved)}` : 'Not saved yet');
+      }
+      bits.push(`checked ${MT.util.timeAgo(sweep)}`);
       el.textContent = bits.join(' · ');
+      el.className = 'mono' + (state === 'error' ? ' field__state--bad' : '');
     } catch (_) {}
   }
 
@@ -62,16 +68,6 @@ MT.boot = (function () {
     if ((await MT.repo.countItems()) === 0) return;
     await MT.repo.metaSet('boot.toldAboutFileOrigin', true);
     MT.ui.banner('You are running the local copy. Browsers treat file:// as its own origin, so this index is separate from the one on your published site — move between them with the passphrase sync, or Export and Import.');
-  }
-
-  async function backupNag() {
-    const b = await MT.sync.backupCheck();
-    if (!b || !b.overdue) return;
-    if (MT.cloud.configured() && MT.crypto.isUnlocked() && MT.cloud.hasWriteToken()) return;  // sync covers it
-    MT.ui.banner(`It has been ${b.days} days since your last export. Local storage can be cleared without warning.`, {
-      actionLabel: 'Export now',
-      onAction: async () => { await MT.sync.exportToFile(); MT.ui.toast('Exported'); refreshFooter(); },
-    });
   }
 
   /* Opportunistic background refresh: never on route change, only on a cold
@@ -109,6 +105,7 @@ MT.boot = (function () {
     pendingPush = true;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(async () => {
+      refreshFooter('saving');
       try { await MT.cloud.publish(); refreshFooter(); }
       catch (e) {
         if (e && e.kind === 'conflict') {
@@ -121,11 +118,18 @@ MT.boot = (function () {
             },
           });
         } else {
-          MT.ui.toast('Could not save to GitHub: ' + (e.message || ''), { bad: true });
+          refreshFooter('error');
+          /* A dead or expired token is the one thing that silently stops the
+             whole model working, so it is never a passing toast. */
+          const dead = /token|401|rejected|expired|Bad credentials/i.test(e.message || '');
+          MT.ui.banner(dead
+            ? 'Your GitHub token was rejected, so changes are no longer being saved. Sign in again to enter a new one.'
+            : 'Could not save to GitHub: ' + (e.message || ''),
+            dead ? { actionLabel: 'Fix it', onAction: () => MT.gate.open({ mode: 'token' }) } : {});
         }
       }
       finally { pendingPush = false; }
-    }, 20000);
+    }, 6000);
   }
 
   function flushOnExit() {
@@ -194,7 +198,6 @@ MT.boot = (function () {
     MT.router.start();
     refreshFooter();
     noteOriginOnce();
-    backupNag();
     scheduleSweeps();
     flushOnExit();
 

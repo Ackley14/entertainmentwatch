@@ -23,7 +23,6 @@ MT.viewSettings = (function () {
       items: await MT.repo.countItems(),
       cache: await MT.repo.cacheCount(),
     };
-    const backup = await MT.sync.backupCheck();
     const sync = await MT.cloud.status();
     const onGithubIo = /\.github\.io$/i.test(location.hostname);
     const budgets = {};
@@ -48,27 +47,6 @@ MT.viewSettings = (function () {
             ${onGithubIo ? '<br><br><b>Note:</b> every site you host on <span class="num">' + esc(location.hostname) + '</span> shares one browser origin, so any other page you publish there can read these keys and this library. A custom domain is the only way to isolate them.' : ''}
           </div>
           ${KEYS.map(k => keyField(k)).join('')}
-        </section>
-
-        <section class="section">
-          ${MT.ui.groupHead('Your data')}
-          <div class="warnbox">
-            <strong>The repository is the source of truth</strong>
-            Your library is encrypted in this browser and saved to the repo, so any device that signs in
-            with your passphrase gets the same single dataset. This browser keeps a working copy for
-            speed. Export is still worth doing occasionally as an offline backup.
-            ${backup ? `<br><br>Last export: <b>${backup.last ? MT.util.timeAgo(backup.last) : 'never'}</b>${backup.overdue ? ' — overdue' : ''}.` : ''}
-          </div>
-          <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
-            <button class="btn btn--primary" id="export">Export library (${counts.items})</button>
-            <button class="btn" id="import-btn">Import from file…</button>
-            <input type="file" id="import" accept="application/json,.json" hidden>
-          </p>
-          <p class="field__help" style="margin-top:var(--mt-space-3)">
-            Import <b>replaces</b> everything currently stored. Export first if you are unsure.
-            The file also carries your alert history, so importing onto a new browser will not
-            re-announce every change you have already seen.
-          </p>
         </section>
 
         <section class="section">
@@ -192,14 +170,12 @@ MT.viewSettings = (function () {
         any machine you do not control.
       </div>
 
-      <p style="display:flex;gap:var(--mt-space-2);flex-wrap:wrap">
+      <p class="actions">
         ${sync.unlocked
-          ? `<button class="btn btn--primary" id="sync-push">Save now</button>
-             <button class="btn" id="sync-pull">Reload from repository</button>
-             <button class="btn btn--ghost" id="sync-lock">Sign out</button>`
-          : `<a class="btn btn--primary" href="#/unlock">Unlock / enter passphrase</a>
-             <a class="btn" href="#/unlock?mode=setup">Set a passphrase</a>`}
-      </p>`;
+          ? `<button class="btn btn--ghost" id="sync-lock">Sign out of this device</button>`
+          : `<a class="btn btn--primary" href="#/unlock">Sign in</a>`}
+      </p>
+`;
   }
 
   function keyField(k) {
@@ -276,58 +252,10 @@ MT.viewSettings = (function () {
       MT.router.resolve();
     };
 
-    const push = document.getElementById('sync-push');
-    if (push) push.onclick = async () => {
-      push.disabled = true; push.textContent = 'Publishing…';
-      try {
-        const res = await MT.cloud.publish();
-        MT.ui.toast(`Published ${res.counts.items} titles`);
-        MT.router.resolve();
-      } catch (e) {
-        push.disabled = false; push.textContent = 'Publish now';
-        MT.ui.toast(e.message || 'Publish failed', { bad: true });
-      }
-    };
-
-    const pull = document.getElementById('sync-pull');
-    if (pull) pull.onclick = async () => {
-      if (!MT.ui.confirmDialog('Loading the published copy replaces everything in this browser. Continue?')) return;
-      pull.disabled = true; pull.textContent = 'Loading…';
-      try {
-        const env = await MT.cloud.pullEnvelope();
-        if (!env) { MT.ui.toast('Nothing published yet', { bad: true }); pull.disabled = false; pull.textContent = 'Load published copy'; return; }
-        const counts = await MT.cloud.restore(env);
-        MT.ui.toast(`Loaded ${counts.items || 0} titles`);
-        MT.router.go('#/list');
-      } catch (e) {
-        pull.disabled = false; pull.textContent = 'Load published copy';
-        MT.ui.toast(e.message || 'Load failed', { bad: true });
-      }
-    };
-
     const lockBtn = document.getElementById('sync-lock');
     if (lockBtn) lockBtn.onclick = () => {
       if (!MT.ui.confirmDialog('Sign out of this device? Your passphrase will be needed again.')) return;
       MT.gate.signOut();
-    };
-
-    document.getElementById('export').onclick = async () => {
-      const counts = await MT.sync.exportToFile();
-      MT.ui.toast(`Exported ${counts.items} titles`);
-      MT.boot.refreshFooter();
-    };
-    document.getElementById('import-btn').onclick = () => document.getElementById('import').click();
-    document.getElementById('import').onchange = async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      if (!MT.ui.confirmDialog('Importing replaces everything currently stored in this browser. Continue?')) return;
-      try {
-        const counts = await MT.sync.importFromFile(file);
-        MT.ui.toast(`Imported ${counts.items || 0} titles`);
-        MT.router.go('#/list');
-      } catch (err) {
-        MT.ui.toast(err.message || 'Import failed', { bad: true });
-      }
     };
 
     const region = document.getElementById('region');
